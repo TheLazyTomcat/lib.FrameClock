@@ -30,6 +30,7 @@ type
     Sec:    Double;   // seconds
     MiS:    Double;   // milliseconds
     UiS:    Double;   // microseconds
+    iSec:   Int64;    // integral seconds
     iMiS:   Int64;    // integral milliseconds
     iUiS:   Int64;    // integral microseconds
   end;
@@ -82,15 +83,15 @@ type
 
 //==============================================================================
 // standalone functions
-(*
+
 type
-  TMeasuringContext = type Pointer;
+  TClockMeasuringContext = type Pointer;
 
-  TMeasuringUnit = (mruTick,mruSecond,mruMilli,mruMicro);
+  TClockMeasuringUnit = (mruTick,mruSecond,mruMilli,mruMicro);
 
-procedure MeasuringStart(var Context: TFrameClockContext);
-procedure MeasuringEnd(var Context: TFrameClockContext; ReturnUnit: TMeasuringUnit = mruMilli): Int64;
-*)
+procedure ClockMeasuringStart(out Context: TClockMeasuringContext);
+Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+
 implementation
 
 uses
@@ -163,6 +164,7 @@ begin
 FrameTime.Sec := FrameTime.Ticks / fFrequency;
 FrameTime.MiS := FrameTime.Sec * FC_MILLIS_PER_SEC;
 FrameTime.UiS := FrameTime.Sec * FC_MICROS_PER_SEC;
+FrameTime.iSec := Trunc(FrameTime.Sec);
 FrameTime.iMiS := Trunc(FrameTime.MiS);
 FrameTime.iUiS := Trunc(FrameTime.UiS);
 end;
@@ -243,6 +245,34 @@ fCurrFrameTicks := GetCurrentTicks;
 fFrameTime.Ticks := GetTicksDiff(fPrevFrameTicks,fCurrFrameTicks);
 FrameTimeFromTicks(fFrameTime);
 Result := fFrameTime;
+end;
+
+//==============================================================================
+
+procedure ClockMeasuringStart(out Context: TClockMeasuringContext);
+begin
+Context := TClockMeasuringContext(TFrameClock.Create);
+end;
+
+//------------------------------------------------------------------------------
+
+Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+begin
+try
+  TFrameClock(Context).TickFrame;
+  case ReturnUnit of
+    mruSecond:  Result := Int64(Trunc(TFrameClock(Context).FrameTime.Sec));
+    mruMilli:   Result := TFrameClock(Context).FrameTime.iMiS;
+    mruMicro:   Result := TFrameClock(Context).FrameTime.iUiS;
+  else
+   {mruTick}
+    Result := Int64(TFrameClock(Context).FrameTime.Ticks);
+  end;
+  TFrameClock(Context).Free;
+  Context := nil;
+except
+  Result := -1;
+end;
 end;
 
 end.
