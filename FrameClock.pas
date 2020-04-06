@@ -1,17 +1,29 @@
 unit FrameClock;
 
+{$IF Defined(WINDOWS) or Defined(MSWINDOWS)}
+  {$DEFINE Windows}
+{$ELSEIF Defined(LINUX) and Defined(FPC)}
+  {$DEFINE Linux}
+{$ELSE}
+  {$MESSAGE FATAL 'Unsupported operating system.'}
+{$IFEND}
+
+{$IFDEF FPC}
+  {$MODE ObjFPC}{$H+}
+{$ENDIF}
+
 interface
 
 uses
   SysUtils,
-  AuxTypes, AuxClasses;
+  AuxClasses;
 
 type
   EFCException = class(Exception);
 
   EFCSystemException = class(EFCException);
 
-  TFCFrameTicks = Int64;  // system-dependent
+  TFCFrameTicks = Int64;
 
   TFCFrameTime = record
     Ticks:  TFCFrameTicks;
@@ -27,7 +39,7 @@ type
     fHighResolution:  Boolean;
     fFrequency:       Int64;          // [Hz]
     fResolution:      Int64;          // [ns]
-    fFrameCounter:    UInt64;         // number of measured frames
+    fFrameCounter:    Int64;          // number of measured frames
     fCreationTicks:   TFCFrameTicks;
     fPrevFrameTicks:  TFCFrameTicks;
     fCurrFrameTicks:  TFCFrameTicks;
@@ -49,7 +61,7 @@ type
     property HighResolution: Boolean read fHighResolution;
     property Frequency: Int64 read fFrequency;
     property Resolution: Int64 read fResolution;
-    property FrameCounter: UInt64 read fFrameCounter;
+    property FrameCounter: Int64 read fFrameCounter;
     property CreationTicks: TFCFrameTicks read fCreationTicks;
     property PrevFrameTicks: TFCFrameTicks read fPrevFrameTicks;
     property CurrFrameTicks: TFCFrameTicks read fCurrFrameTicks;
@@ -68,10 +80,21 @@ type
     property ActualTime: TFCFrameTime read GetActualTime;
   end;
 
+//==============================================================================
+// standalone functions
+(*
+type
+  TMeasuringContext = type Pointer;
+
+  TMeasuringUnit = (mruTick,mruSecond,mruMilli,mruMicro);
+
+procedure MeasuringStart(var Context: TFrameClockContext);
+procedure MeasuringEnd(var Context: TFrameClockContext; ReturnUnit: TMeasuringUnit = mruMilli): Int64;
+*)
 implementation
 
 uses
-  Windows;
+{$IFDEF Windows}Windows{$ELSE}baseunix, linux{$ENDIF};
 
 const
   FC_MILLIS_PER_SEC = 1000;         // millisecodns per second
@@ -100,13 +123,25 @@ end;
 //------------------------------------------------------------------------------
 
 Function TFrameClock.GetCurrentTicks: TFCFrameTicks;
+{$IFNDEF Windows}
+var
+  Time: TTimeSpec;
+{$ENDIF}
 begin
+Result := 0;
 If fHighResolution then
   begin
+  {$IFDEF Windows}
     If QueryPerformanceCounter(Result) then
       Result := Result and $7FFFFFFFFFFFFFFF  // mask out sign bit
     else
       raise EFCSystemException.CreateFmt('TFrameClock.GetCurrentTicks: System error 0x%.8x.',[GetLastError]);
+  {$ELSE}
+    If clock_gettime(CLOCK_MONOTONIC_RAW,@Time) = 0 then
+      Result := (Int64(Time.tv_sec) * FC_NANOS_PER_SEC) + Time.tv_nsec
+    else
+      raise EFCSystemException.CreateFmt('TFrameClock.GetCurrentTicks: System error %d.',[errno]);
+  {$ENDIF}
   end
 else Result := TFCFrameTicks(Trunc(Now * FC_MILLIS_PER_DAY));
 end;
@@ -135,13 +170,26 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TFrameClock.InitializeTime;
+{$IFNDEF Windows}
+var
+  Time: TTimeSpec;
+{$ENDIF}
 begin
+{$IFDEF Windows}
 If QueryPerformanceFrequency(fFrequency) then
   begin
     fHighResolution := True;
     fFrequency := fFrequency and $7FFFFFFFFFFFFFFF; // mask out sign bit
     fResolution := Trunc((1 / fFrequency) * FC_NANOS_PER_SEC);
   end
+{$ELSE}
+If clock_getres(CLOCK_MONOTONIC_RAW,@Time) = 0 then
+  begin
+    fHighResolution := True;
+    fFrequency := FC_NANOS_PER_SEC; // frequency is hardcoded for nanoseconds
+    fResolution := (Int64(Time.tv_sec) * FC_NANOS_PER_SEC) + Time.tv_nsec;
+  end
+{$ENDIF}
 else
   begin
     fHighResolution := False;
@@ -166,6 +214,7 @@ end;
 
 procedure TFrameClock.Finalize;
 begin
+// nothing to do here
 end;
 
 //==============================================================================
