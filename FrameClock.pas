@@ -90,6 +90,7 @@ type
   TClockMeasuringUnit = (mruTick,mruSecond,mruMilli,mruMicro);
 
 procedure ClockMeasuringStart(out Context: TClockMeasuringContext);
+Function ClockMeasuringTick(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
 Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
 
 implementation
@@ -256,7 +257,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+Function ClockMeasuringTick(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
 begin
 try
   TFrameClock(Context).TickFrame;
@@ -268,11 +269,18 @@ try
    {mruTick}
     Result := Int64(TFrameClock(Context).FrameTime.Ticks);
   end;
-  TFrameClock(Context).Free;
-  Context := nil;
 except
   Result := -1;
 end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+begin
+Result := ClockMeasuringTick(Context,ReturnUnit);
+TFrameClock(Context).Free;
+Context := nil;
 end;
 
 end.
