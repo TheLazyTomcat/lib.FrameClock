@@ -9,7 +9,9 @@ unit FrameClock;
 {$IFEND}
 
 {$IFDEF FPC}
-  {$MODE ObjFPC}{$H+}
+  {$MODE Delphi}
+  {$DEFINE FPC_DisableWarns}
+  {$MACRO ON}
 {$ENDIF}
 
 interface
@@ -43,18 +45,6 @@ type
     iUiS:   Int64;    // integral microseconds
   end;
 
-// types and constants for lists...
-type
-  TFCTimeStamp = record
-    Name:     String;
-    Value:    TFCTicks;
-    UserData: PtrInt;
-  end;
-  PFCTimeStamp = ^TFCTimeStamp;
-
-const
-  FC_LIST_IDX_TIMESTAMPS = 0;
-
 {===============================================================================
     TFrameClock - class declaration
 ===============================================================================}
@@ -69,15 +59,9 @@ type
     fPrevFrameTicks:  TFCTicks;
     fCurrFrameTicks:  TFCTicks;
     fFrameTime:       TFCFrameTime;
-    fTimeStamps:      array of TFCTimeStamp;
-    fTimeStampCount:  Integer;
     // getters/setters
     Function GetCreationTime: TFCFrameTime; virtual;
     Function GetActualTime: TFCFrameTime; virtual;
-    // list getters/setters
-    Function GetTimeStamp(Index: Integer): TFCTimeStamp; virtual;
-    procedure SetTimeStamp(Index: Integer; Value: TFCTimeStamp); virtual;
-    Function GetTimeStampPtr(Index: Integer): PFCTimeStamp; virtual;
     // lists methods
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
@@ -95,9 +79,71 @@ type
     destructor Destroy; override;
     Function TickFrame: TFCFrameTime; virtual;
   {
-    TicksTime - returns time between given ticks and current frame
+    TicksTime - returns time between given ticks and current frame.
   }
     Function TicksTime(Ticks: TFCTicks): TFCFrameTime; virtual;
+    Function LowIndex(List: Integer): Integer; override;
+    Function HighIndex(List: Integer): Integer; override;
+    property HighResolution: Boolean read fHighResolution;
+    property Frequency: Int64 read fFrequency;
+    property Resolution: Int64 read fResolution;
+    property FrameCounter: Int64 read fFrameCounter;
+    property CreationTicks: TFCTicks read fCreationTicks;
+    property PrevFrameTicks: TFCTicks read fPrevFrameTicks;
+    property CurrFrameTicks: TFCTicks read fCurrFrameTicks;
+  {
+    CreationTime - time from object creation to current frame end.
+  }
+    property CreationTime: TFCFrameTime read GetCreationTime;
+  {
+    FrameTime - time from previous frame end to current frame end.
+  }
+    property FrameTime: TFCFrameTime read fFrameTime;
+  {
+    ActualTime - time from previous frame end to actual time (moment the
+                 property is accessed).
+  }
+    property ActualTime: TFCFrameTime read GetActualTime;
+  end;
+
+{===============================================================================
+--------------------------------------------------------------------------------
+                                  TFrameClockEx
+--------------------------------------------------------------------------------
+===============================================================================}
+
+// types and constants for lists...
+type
+  TFCTimeStamp = record
+    Name:     String;
+    Value:    TFCTicks;
+    UserData: PtrInt;
+  end;
+  PFCTimeStamp = ^TFCTimeStamp;
+
+const
+  FC_LIST_IDX_TIMESTAMPS = 0;
+
+{===============================================================================
+    TFrameClockEx - class declaration
+===============================================================================}
+
+type
+  TFrameClockEx = class(TFrameClock)
+  protected
+    fTimeStamps:      array of TFCTimeStamp;
+    fTimeStampCount:  Integer;
+    // lists getters/setters
+    Function GetTimeStamp(Index: Integer): TFCTimeStamp; virtual;
+    procedure SetTimeStamp(Index: Integer; Value: TFCTimeStamp); virtual;
+    Function GetTimeStampPtr(Index: Integer): PFCTimeStamp; virtual;
+    // inherited list methods    
+    Function GetCapacity(List: Integer): Integer; override;
+    procedure SetCapacity(List,Value: Integer); override;
+    Function GetCount(List: Integer): Integer; override;
+    procedure SetCount(List,Value: Integer); override;
+  public
+    constructor Create;  
     Function LowIndex(List: Integer): Integer; override;
     Function HighIndex(List: Integer): Integer; override;
     // timestamps list
@@ -109,7 +155,7 @@ type
     Function TimeStampIndexOf(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer; virtual;
   {
-    TimeStampAddCurrent - adds current frame ticks as a new timestamp
+    TimeStampAddCurrent - adds current frame ticks as a new timestamp.
   }
     Function TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer; virtual;
     procedure TimeStampInsert(Index: Integer; const Name: String; Value: TFCTicks; UserData: PtrInt = 0); virtual;
@@ -119,31 +165,11 @@ type
     procedure TimeStampDelete(Index: Integer); virtual;
     procedure TimeStampClear; virtual;
   {
-    TimeStampTime - returns time between selected timestamp and current frame 
+    TimeStampTime - returns time between selected timestamp and current frame.
   }
-    Function TimeStampTime(Index: Integer): TFCFrameTime; virtual;
-
-    property HighResolution: Boolean read fHighResolution;
-    property Frequency: Int64 read fFrequency;
-    property Resolution: Int64 read fResolution;
-    property FrameCounter: Int64 read fFrameCounter;
-    property CreationTicks: TFCTicks read fCreationTicks;
-    property PrevFrameTicks: TFCTicks read fPrevFrameTicks;
-    property CurrFrameTicks: TFCTicks read fCurrFrameTicks;
-  {
-    CreationTime - time from object creation to current frame end
-  }
-    property CreationTime: TFCFrameTime read GetCreationTime;
-  {
-    FrameTime - time from previous frame end to current frame end
-  }
-    property FrameTime: TFCFrameTime read fFrameTime;
-  {
-    ActualTime - time from previous frame end to actual time (moment the
-                 property is accessed)
-  }
-    property ActualTime: TFCFrameTime read GetActualTime;
-    // timestamps
+    Function TimeStampTime(Index: Integer): TFCFrameTime; overload; virtual;
+    Function TimeStampTime(const Name: String): TFCFrameTime; overload; virtual;
+    // timestamp propeeties
     property TimeStampCount: Integer index FC_LIST_IDX_TIMESTAMPS read GetCount write SetCount;
     property TimeStampCapacity: Integer index FC_LIST_IDX_TIMESTAMPS read GetCapacity write SetCapacity;
     property TimeStamps[Index: Integer]: TFCTimeStamp read GetTimeStamp write SetTimeStamp; default;
@@ -167,6 +193,10 @@ implementation
 uses
 {$IFDEF Windows}Windows{$ELSE}baseunix, linux{$ENDIF};
 
+{$IFDEF FPC_DisableWarns}
+  {$DEFINE FPCDWM}
+  {$DEFINE W5024:={$WARN 5024 OFF}} // Parameter "$1" not used
+{$ENDIF}
 
 {===============================================================================
 --------------------------------------------------------------------------------
@@ -205,81 +235,37 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.GetTimeStamp(Index: Integer): TFCTimeStamp;
-begin
-If TimeStampCheckIndex(Index) then
-  Result := fTimeStamps[Index]
-else
-  raise EFCIndexOutOfBounds.CreateFmt('TFrameClock.GetTimeStamp: Index (%d) out of bounds.',[Index]);
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TFrameClock.SetTimeStamp(Index: Integer; Value: TFCTimeStamp);
-begin
-If TimeStampCheckIndex(Index) then
-  fTimeStamps[Index] := Value
-else
-  raise EFCIndexOutOfBounds.CreateFmt('TFrameClock.SetTimeStamp: Index (%d) out of bounds.',[Index]);
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.GetTimeStampPtr(Index: Integer): PFCTimeStamp;
-begin
-If TimeStampCheckIndex(Index) then
-  Result := Addr(fTimeStamps[Index])
-else
-  raise EFCIndexOutOfBounds.CreateFmt('TFrameClock.GetTimeStampPtr: Index (%d) out of bounds.',[Index]);
-end;
-
-//------------------------------------------------------------------------------
-
 Function TFrameClock.GetCapacity(List: Integer): Integer;
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Length(fTimeStamps);
-else
-  raise EFCInvalidList.CreateFmt('TFrameClock.GetCapacity: Invalid list (%d).',[List]);
-end;
+{$IFDEF FPC}Result := 0;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.GetCapacity: Invalid list (%d).',[List]);
 end;
 
 //------------------------------------------------------------------------------
 
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
 procedure TFrameClock.SetCapacity(List,Value: Integer);
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS: begin
-                            If Value < fTimeStampCount then
-                              fTimeStampCount := Value;
-                            SetLength(fTimeStamps,Value);
-                          end;
-else
-  raise EFCInvalidList.CreateFmt('TFrameClock.SetCapacity: Invalid list (%d).',[List]);
+raise EFCInvalidList.CreateFmt('TFrameClock.SetCapacity: Invalid list (%d).',[List]);
 end;
-end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
 
 //------------------------------------------------------------------------------
 
 Function TFrameClock.GetCount(List: Integer): Integer;
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := fTimeStampCount;
-else
-  raise EFCInvalidList.CreateFmt('TFrameClock.GetCount: Invalid list (%d).',[List]);
-end;
+{$IFDEF FPC}Result := 0;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.GetCount: Invalid list (%d).',[List]);
 end;
 
 //------------------------------------------------------------------------------
 
+{$IFDEF FPCDWM}{$PUSH}W5024{$ENDIF}
 procedure TFrameClock.SetCount(List,Value: Integer);
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS:;  // do nothing
-else
-  raise EFCInvalidList.CreateFmt('TFrameClock.SetCount: Invalid list (%d).',[List]);
+raise EFCInvalidList.CreateFmt('TFrameClock.SetCount: Invalid list (%d).',[List]);
 end;
-end;
+{$IFDEF FPCDWM}{$POP}{$ENDIF}
 
 //------------------------------------------------------------------------------
 
@@ -387,7 +373,7 @@ end;
 
 constructor TFrameClock.Create;
 begin
-inherited Create(1);
+inherited Create(0);
 Initialize;
 end;
 
@@ -423,48 +409,162 @@ end;
 
 Function TFrameClock.LowIndex(List: Integer): Integer;
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Low(fTimeStamps);
-else
-  raise EFCInvalidList.CreateFmt('TFrameClock.LowIndex: Invalid list (%d).',[List]);
-end;
+{$IFDEF FPC}Result := 0;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.LowIndex: Invalid list (%d).',[List]);
 end;
 
 //------------------------------------------------------------------------------
 
 Function TFrameClock.HighIndex(List: Integer): Integer;
 begin
-case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Pred(fTimeStampCount);
+{$IFDEF FPC}Result := -1;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.HighIndex: Invalid list (%d).',[List]);
+end;
+
+{===============================================================================
+--------------------------------------------------------------------------------
+                                  TFrameClockEx
+--------------------------------------------------------------------------------
+===============================================================================}
+{===============================================================================
+    TFrameClockEx - class declaration
+===============================================================================}
+{-------------------------------------------------------------------------------
+    TFrameClockEx - protected methods
+-------------------------------------------------------------------------------}
+
+Function TFrameClockEx.GetTimeStamp(Index: Integer): TFCTimeStamp;
+begin
+If TimeStampCheckIndex(Index) then
+  Result := fTimeStamps[Index]
 else
-  raise EFCInvalidList.CreateFmt('TFrameClock.HighIndex: Invalid list (%d).',[List]);
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.GetTimeStamp: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.SetTimeStamp(Index: Integer; Value: TFCTimeStamp);
+begin
+If TimeStampCheckIndex(Index) then
+  fTimeStamps[Index] := Value
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.SetTimeStamp: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.GetTimeStampPtr(Index: Integer): PFCTimeStamp;
+begin
+If TimeStampCheckIndex(Index) then
+  Result := Addr(fTimeStamps[Index])
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.GetTimeStampPtr: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.GetCapacity(List: Integer): Integer;
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS: Result := Length(fTimeStamps);
+else
+  Result := inherited GetCapacity(List);
 end;
 end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampLowIndex: Integer;
+procedure TFrameClockEx.SetCapacity(List,Value: Integer);
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS: begin
+                            If Value < fTimeStampCount then
+                              fTimeStampCount := Value;
+                            SetLength(fTimeStamps,Value);
+                          end;
+else
+  inherited SetCapacity(List,Value);
+end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.GetCount(List: Integer): Integer;
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS: Result := fTimeStampCount;
+else
+  Result := inherited GetCount(List);
+end;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.SetCount(List,Value: Integer);
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS:;  // do nothing
+else
+  inherited SetCount(List,Value);
+end;
+end;
+
+{-------------------------------------------------------------------------------
+    TFrameClockEx - public methods
+-------------------------------------------------------------------------------}
+
+constructor TFrameClockEx.Create;
+begin
+inherited Create;
+ListCount := 1;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.LowIndex(List: Integer): Integer;
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS: Result := Low(fTimeStamps);
+else
+  Result := inherited LowIndex(List);
+end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.HighIndex(List: Integer): Integer;
+begin
+case List of
+  FC_LIST_IDX_TIMESTAMPS: Result := Pred(fTimeStampCount);
+else
+  Result := inherited HighIndex(List);
+end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.TimeStampLowIndex: Integer;
 begin
 Result := LowIndex(FC_LIST_IDX_TIMESTAMPS);
 end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampHighIndex: Integer;
+Function TFrameClockEx.TimeStampHighIndex: Integer;
 begin
 Result := HighIndex(FC_LIST_IDX_TIMESTAMPS);
 end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampCheckIndex(Index: Integer): Boolean;
+Function TFrameClockEx.TimeStampCheckIndex(Index: Integer): Boolean;
 begin
 Result := CheckIndex(FC_LIST_IDX_TIMESTAMPS,Index);
 end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampIndexOf(const Name: String): Integer;
+Function TFrameClockEx.TimeStampIndexOf(const Name: String): Integer;
 var
   i:  Integer;
 begin
@@ -479,7 +579,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClock.TimeStampIndexOf(Value: TFCTicks): Integer;
+Function TFrameClockEx.TimeStampIndexOf(Value: TFCTicks): Integer;
 var
   i:  Integer;
 begin
@@ -494,7 +594,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClock.TimeStampIndexOf(const Name: String; Value: TFCTicks): Integer;
+Function TFrameClockEx.TimeStampIndexOf(const Name: String; Value: TFCTicks): Integer;
 var
   i:  Integer;
 begin
@@ -509,7 +609,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer;
+Function TFrameClockEx.TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer;
 begin
 Grow(FC_LIST_IDX_TIMESTAMPS);
 Result := fTimeStampCount;
@@ -522,14 +622,14 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer;
+Function TFrameClockEx.TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer;
 begin
 Result := TimeStampAdd(Name,fCurrFrameTicks,UserData);
 end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClock.TimeStampInsert(Index: Integer; const Name: String; Value: TFCTicks; UserData: PtrInt = 0);
+procedure TFrameClockEx.TimeStampInsert(Index: Integer; const Name: String; Value: TFCTicks; UserData: PtrInt = 0);
 var
   i:  Integer;
 begin
@@ -549,7 +649,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampRemove(const Name: String): Integer;
+Function TFrameClockEx.TimeStampRemove(const Name: String): Integer;
 begin
 Result := TimeStampIndexOf(Name);
 If TimeStampCheckIndex(Result) then
@@ -558,7 +658,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClock.TimeStampRemove(Value: Int64): Integer;
+Function TFrameClockEx.TimeStampRemove(Value: Int64): Integer;
 begin
 Result := TimeStampIndexOf(Value);
 If TimeStampCheckIndex(Result) then
@@ -567,7 +667,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClock.TimeStampRemove(const Name: String; Value: Int64): Integer;
+Function TFrameClockEx.TimeStampRemove(const Name: String; Value: Int64): Integer;
 begin
 Result := TimeStampIndexOf(Name,Value);
 If TimeStampCheckIndex(Result) then
@@ -576,7 +676,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClock.TimeStampDelete(Index: Integer);
+procedure TFrameClockEx.TimeStampDelete(Index: Integer);
 var
   i:  Integer;
 begin
@@ -587,12 +687,12 @@ If TimeStampCheckIndex(Index) then
     Dec(fTimeStampCount);
     Shrink(FC_LIST_IDX_TIMESTAMPS);
   end
-else raise EFCIndexOutOfBounds.CreateFmt('TFrameClock.TimeStampDelete: Index (%d) out of bounds.',[Index]);
+else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.TimeStampDelete: Index (%d) out of bounds.',[Index]);
 end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClock.TimeStampClear;
+procedure TFrameClockEx.TimeStampClear;
 begin
 SetLength(fTimeStamps,0);
 fTimeStampCount := 0;
@@ -600,15 +700,33 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.TimeStampTime(Index: Integer): TFCFrameTime;
+Function TFrameClockEx.TimeStampTime(Index: Integer): TFCFrameTime;
 begin
 If TimeStampCheckIndex(Index) then
   begin
     Result.Ticks := GetTicksDiff(fTimeStamps[Index].Value,fCurrFrameTicks);
     FrameTimeFromTicks(Result);
   end
-else raise EFCIndexOutOfBounds.CreateFmt('TFrameClock.TimeStampTime: Index (%d) out of bounds.',[Index]);
+else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.TimeStampTime: Index (%d) out of bounds.',[Index]);
 end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.TimeStampTime(const Name: String): TFCFrameTime;
+var
+  Index:  Integer;
+begin
+Index := TimeStampIndexOf(Name);
+If TimeStampCheckIndex(Index) then
+  Result := TimeStampTime(Index)
+else
+  FillChar(Addr(Result)^,SizeOf(TFCFrameTime),0);
+{
+  Addr(Result)^ is there as a workaround for nonsensical warning in FPC about
+  result being not set.
+}
+end;
+
 
 {===============================================================================
     Standalone functions - implementation
