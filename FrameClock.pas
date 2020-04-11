@@ -23,15 +23,37 @@ uses
 type
   EFCException = class(Exception);
 
-  EFCSystemException  = class(EFCException);
-  EFCInvalidList      = class(EFCException);
-  EFCIndexOutOfBounds = class(EFCException);
+  EFCHighResolutionFail = class(EFCException);
+  EFCSystemException    = class(EFCException);
+  EFCInvalidList        = class(EFCException);
+  EFCIndexOutOfBounds   = class(EFCException);
 
 {===============================================================================
 --------------------------------------------------------------------------------
                                    TFrameClock
 --------------------------------------------------------------------------------
 ===============================================================================}
+{
+  TFrameClock class is intended to be used as a mean of measuring time between
+  two points in time with high resolution. Note that high resolution does not
+  necessarily mean high precission, especially on long time intervals.
+
+  If high resolution clock is not awailable on the system, or it fails for
+  whatever reason, it defaults to normal system timer (of which resolution is,
+  in most cases, worse than one milliseconds). If the clock is running in high
+  resolution mode or not can be checked in HighResolution property.
+  Also, if you select to force high-res at creation and the HR timer cannot be
+  used, the constructor raises an EFCHighResTmrFail exception.
+
+  Space between the two measured points is called frame (hence frame clock).
+
+  The distance is measured in ticks. Length of these ticks is implementation and
+  system dependent, do not assume anything about them, it is just a number that
+  has meaning only within the object that produced them. So do not pass these
+  values between different instances of the frame clock.
+}
+
+
 type
   TFCTicks = Int64;
 
@@ -59,15 +81,15 @@ type
     fPrevFrameTicks:  TFCTicks;
     fCurrFrameTicks:  TFCTicks;
     fFrameTime:       TFCFrameTime;
-    // getters/setters
+    //- getters/setters ---
     Function GetCreationTime: TFCFrameTime; virtual;
     Function GetActualTime: TFCFrameTime; virtual;
-    // lists methods
+    //- lists methods ---
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
     Function GetCount(List: Integer): Integer; override;
     procedure SetCount(List,Value: Integer); override;
-    // other protected methods
+    //- other protected methods ---
     Function GetCurrentTicks: TFCTicks; virtual;
     Function GetTicksDiff(A,B: TFCTicks): TFCTicks; virtual;
     procedure FrameTimeFromTicks(var FrameTime: TFCFrameTime); virtual;
@@ -75,13 +97,10 @@ type
     procedure Initialize; virtual;
     procedure Finalize; virtual;
   public
-    constructor Create;
+    constructor Create(ForceHighResolution: Boolean = False);
     destructor Destroy; override;
     Function TickFrame: TFCFrameTime; virtual;
-  {
-    TicksTime - returns time between given ticks and current frame.
-  }
-    Function TicksTime(Ticks: TFCTicks): TFCFrameTime; virtual;
+    Function TicksTime(Ticks: TFCTicks): TFCFrameTime; virtual; // time between given ticks and current frame
     Function LowIndex(List: Integer): Integer; override;
     Function HighIndex(List: Integer): Integer; override;
     property HighResolution: Boolean read fHighResolution;
@@ -91,19 +110,9 @@ type
     property CreationTicks: TFCTicks read fCreationTicks;
     property PrevFrameTicks: TFCTicks read fPrevFrameTicks;
     property CurrFrameTicks: TFCTicks read fCurrFrameTicks;
-  {
-    CreationTime - time from object creation to current frame end.
-  }
-    property CreationTime: TFCFrameTime read GetCreationTime;
-  {
-    FrameTime - time from previous frame end to current frame end.
-  }
-    property FrameTime: TFCFrameTime read fFrameTime;
-  {
-    ActualTime - time from previous frame end to actual time (moment the
-                 property is accessed).
-  }
-    property ActualTime: TFCFrameTime read GetActualTime;
+    property CreationTime: TFCFrameTime read GetCreationTime;   // time from object creation to current frame
+    property FrameTime: TFCFrameTime read fFrameTime;           // time from previous frame to current frame
+    property ActualTime: TFCFrameTime read GetActualTime;       // time from current frame to actual time (moment the property is accessed)
   end;
 
 {===============================================================================
@@ -116,13 +125,21 @@ type
 type
   TFCTimeStamp = record
     Name:     String;
-    Value:    TFCTicks;
+    Value:    TFCTicks; // stores tisck at which the time stamp was made
     UserData: PtrInt;
   end;
   PFCTimeStamp = ^TFCTimeStamp;
 
+  TFCAccumulator = record
+    Name:     String;
+    Value:    TFCTicks; // stores number of ticks accumulated (ie. a length of time)
+    UserData: PtrInt;
+  end;
+  PFCAccumulator = ^TFCAccumulator;
+
 const
-  FC_LIST_IDX_TIMESTAMPS = 0;
+  FCE_LIST_IDX_TIMESTAMPS   = 0;
+  FCE_LIST_IDX_ACCUMULATORS = 1;
 
 {===============================================================================
     TFrameClockEx - class declaration
@@ -131,22 +148,30 @@ const
 type
   TFrameClockEx = class(TFrameClock)
   protected
-    fTimeStamps:      array of TFCTimeStamp;
-    fTimeStampCount:  Integer;
-    // lists getters/setters
+    fTimeStamps:        array of TFCTimeStamp;
+    fTimeStampCount:    Integer;
+    fAccumulators:      array of TFCAccumulator;
+    fAccumulatorCount:  Integer;
+    //- lists getters/setters ---
     Function GetTimeStamp(Index: Integer): TFCTimeStamp; virtual;
     procedure SetTimeStamp(Index: Integer; Value: TFCTimeStamp); virtual;
     Function GetTimeStampPtr(Index: Integer): PFCTimeStamp; virtual;
-    // inherited list methods    
+    Function GetAccumulator(Index: Integer): TFCAccumulator; virtual;
+    procedure SetAccumulator(Index: Integer; Value: TFCAccumulator); virtual;
+    Function GetAccumulatorPtr(Index: Integer): PFCAccumulator; virtual;
+    //- inherited list methods ---
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
     Function GetCount(List: Integer): Integer; override;
     procedure SetCount(List,Value: Integer); override;
+    //- other methods ---
+    procedure Initialize; override;
+    procedure Finalize; override;
   public
-    constructor Create;  
+    constructor Create;
     Function LowIndex(List: Integer): Integer; override;
     Function HighIndex(List: Integer): Integer; override;
-    // timestamps list
+    //- timestamps list ---
     Function TimeStampLowIndex: Integer; virtual;
     Function TimeStampHighIndex: Integer; virtual;
     Function TimeStampCheckIndex(Index: Integer): Boolean; virtual;
@@ -154,25 +179,48 @@ type
     Function TimeStampIndexOf(Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampIndexOf(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer; virtual;
-  {
-    TimeStampAddCurrent - adds current frame ticks as a new timestamp.
-  }
-    Function TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer; virtual;
+    Function TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer; virtual; // adds current frame ticks as a new timestamp
     procedure TimeStampInsert(Index: Integer; const Name: String; Value: TFCTicks; UserData: PtrInt = 0); virtual;
     Function TimeStampRemove(const Name: String): Integer; overload; virtual;
-    Function TimeStampRemove(Value: Int64): Integer; overload; virtual;
+    Function TimeStampRemove(Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampRemove(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     procedure TimeStampDelete(Index: Integer); virtual;
     procedure TimeStampClear; virtual;
-  {
-    TimeStampTime - returns time between selected timestamp and current frame.
-  }
-    Function TimeStampTime(Index: Integer): TFCFrameTime; overload; virtual;
+    Function TimeStampTime(Index: Integer): TFCFrameTime; overload; virtual;    // time between selected timestamp and current frame
     Function TimeStampTime(const Name: String): TFCFrameTime; overload; virtual;
-    // timestamp propeeties
-    property TimeStampCount: Integer index FC_LIST_IDX_TIMESTAMPS read GetCount write SetCount;
-    property TimeStampCapacity: Integer index FC_LIST_IDX_TIMESTAMPS read GetCapacity write SetCapacity;
-    property TimeStamps[Index: Integer]: TFCTimeStamp read GetTimeStamp write SetTimeStamp; default;
+    //- accumulators list ---
+    Function AccumulatorLowIndex: Integer; virtual;
+    Function AccumulatorHighIndex: Integer; virtual;
+    Function AccumulatorCheckIndex(Index: Integer): Boolean; virtual;
+    Function AccumulatorIndexOf(const Name: String): Integer; overload; virtual;
+    Function AccumulatorIndexOf(Value: TFCTicks): Integer; overload; virtual;
+    Function AccumulatorIndexOf(const Name: String; Value: TFCTicks): Integer; overload; virtual;
+    Function AccumulatorAdd(const Name: String; InitialValue: TFCTicks = 0; UserData: PtrInt = 0): Integer; virtual;
+    procedure AccumulatorInsert(Index: Integer; const Name: String; InitialValue: TFCTicks = 0; UserData: PtrInt = 0); virtual;
+    Function AccumulatorRemove(const Name: String): Integer; overload; virtual;
+    Function AccumulatorRemove(Value: TFCTicks): Integer; overload; virtual;
+    Function AccumulatorRemove(const Name: String; Value: TFCTicks): Integer; overload; virtual;
+    procedure AccumulatorDelete(Index: Integer); virtual;
+    procedure AccumulatorClear; virtual;
+    procedure AccumulatorReset(Index: Integer); virtual;
+    Function AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCFrameTime; overload; virtual;
+    Function AccumulatorAccumulate(Index: Integer): TFCFrameTime; overload; virtual;
+    Function AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCFrameTime; overload; virtual;
+    Function AccumulatorAccumulate(const Name: String): TFCFrameTime; overload; virtual;
+    procedure AccumulatorAccumulateAll(Delta: TFCTicks); overload; virtual;
+    procedure AccumulatorAccumulateAll; overload; virtual;
+    Function AccumulatorTime(Index: Integer): TFCFrameTime; overload; virtual;
+    Function AccumulatorTime(const Name: String): TFCFrameTime; overload; virtual;
+    //- timestamp properties ---
+    property TimeStampCount: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCount write SetCount;
+    property TimeStampCapacity: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCapacity write SetCapacity;
+    property TimeStamps[Index: Integer]: TFCTimeStamp read GetTimeStamp write SetTimeStamp;
+    property TimeStampPtrs[Index: Integer]: PFCTimeStamp read GetTimeStampPtr;
+    //- accumulator properties ---
+    property AccumulatorCount: Integer index FCE_LIST_IDX_ACCUMULATORS read GetCount write SetCount;
+    property AccumulatorCapacity: Integer index FCE_LIST_IDX_ACCUMULATORS read GetCapacity write SetCapacity;
+    property Accumulators[Index: Integer]: TFCAccumulator read GetAccumulator write SetAccumulator;
+    property AccumulatorPtrs[Index: Integer]: PFCAccumulator read GetAccumulatorPtr;
   end;
 
 {===============================================================================
@@ -180,13 +228,13 @@ type
 ===============================================================================}
 
 type
-  TClockMeasuringContext = type Pointer;
+  TClockMeasureContext = type Pointer;
 
-  TClockMeasuringUnit = (mruTick,mruSecond,mruMilli,mruMicro);
+  TClockMeasureUnit = (mruTick,mruSecond,mruMilli,mruMicro);
 
-procedure ClockMeasuringStart(out Context: TClockMeasuringContext);
-Function ClockMeasuringTick(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
-Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+procedure ClockMeasureStart(out Context: TClockMeasureContext);
+Function ClockMeasureTick(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
+Function ClockMeasureEnd(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
 
 implementation
 
@@ -229,7 +277,7 @@ end;
 
 Function TFrameClock.GetActualTime: TFCFrameTime;
 begin
-Result.Ticks := GetTicksDiff(fPrevFrameTicks,GetCurrentTicks);
+Result.Ticks := GetTicksDiff(fCurrFrameTicks,GetCurrentTicks);
 FrameTimeFromTicks(Result);
 end;
 
@@ -308,13 +356,16 @@ end;
 //------------------------------------------------------------------------------
 
 procedure TFrameClock.FrameTimeFromTicks(var FrameTime: TFCFrameTime);
+var
+  Temp: Extended;
 begin
-FrameTime.Sec := FrameTime.Ticks / fFrequency;
-FrameTime.MiS := FrameTime.Sec * FC_MILLIS_PER_SEC;
-FrameTime.UiS := FrameTime.Sec * FC_MICROS_PER_SEC;
-FrameTime.iSec := Trunc(FrameTime.Sec);
-FrameTime.iMiS := Trunc(FrameTime.MiS);
-FrameTime.iUiS := Trunc(FrameTime.UiS);
+Temp := FrameTime.Ticks / fFrequency;
+FrameTime.Sec := Temp;
+FrameTime.MiS := Temp * FC_MILLIS_PER_SEC;
+FrameTime.UiS := Temp * FC_MICROS_PER_SEC;
+FrameTime.iSec := Trunc(Temp);
+FrameTime.iMiS := Trunc(Temp * FC_MILLIS_PER_SEC);
+FrameTime.iUiS := Trunc(Temp * FC_MICROS_PER_SEC);
 end;
 
 //------------------------------------------------------------------------------
@@ -371,10 +422,12 @@ end;
     TFrameClock - public methods
 -------------------------------------------------------------------------------}
 
-constructor TFrameClock.Create;
+constructor TFrameClock.Create(ForceHighResolution: Boolean = False);
 begin
 inherited Create(0);
 Initialize;
+If ForceHighResolution and not fHighResolution then
+ raise EFCHighResolutionFail.Create('TFrameClock.Create: Failed to obtain high resolution timer.');
 end;
 
 //------------------------------------------------------------------------------
@@ -427,7 +480,7 @@ end;
 --------------------------------------------------------------------------------
 ===============================================================================}
 {===============================================================================
-    TFrameClockEx - class declaration
+    TFrameClockEx - class implementation
 ===============================================================================}
 {-------------------------------------------------------------------------------
     TFrameClockEx - protected methods
@@ -463,10 +516,41 @@ end;
 
 //------------------------------------------------------------------------------
 
+Function TFrameClockEx.GetAccumulator(Index: Integer): TFCAccumulator;
+begin
+If AccumulatorCheckIndex(Index) then
+  Result := fAccumulators[Index]
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.GetAccumulator: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.SetAccumulator(Index: Integer; Value: TFCAccumulator);
+begin
+If AccumulatorCheckIndex(Index) then
+  fAccumulators[Index] := Value
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.SetAccumulator: Index (%d) out of bounds.',[Index]);
+end;
+ 
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.GetAccumulatorPtr(Index: Integer): PFCAccumulator;
+begin
+If AccumulatorCheckIndex(Index) then
+  Result := Addr(fAccumulators[Index])
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.GetAccumulatorPtr: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
 Function TFrameClockEx.GetCapacity(List: Integer): Integer;
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Length(fTimeStamps);
+  FCE_LIST_IDX_TIMESTAMPS:    Result := Length(fTimeStamps);
+  FCE_LIST_IDX_ACCUMULATORS:  Result := Length(fAccumulators);
 else
   Result := inherited GetCapacity(List);
 end;
@@ -477,11 +561,16 @@ end;
 procedure TFrameClockEx.SetCapacity(List,Value: Integer);
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS: begin
-                            If Value < fTimeStampCount then
-                              fTimeStampCount := Value;
-                            SetLength(fTimeStamps,Value);
-                          end;
+  FCE_LIST_IDX_TIMESTAMPS:    begin
+                                If Value < fTimeStampCount then
+                                  fTimeStampCount := Value;
+                                SetLength(fTimeStamps,Value);
+                              end;
+  FCE_LIST_IDX_ACCUMULATORS:  begin
+                                If Value < fAccumulatorCount then
+                                  fAccumulatorCount := Value;
+                                SetLength(fAccumulators,Value);
+                              end;
 else
   inherited SetCapacity(List,Value);
 end;
@@ -492,7 +581,8 @@ end;
 Function TFrameClockEx.GetCount(List: Integer): Integer;
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := fTimeStampCount;
+  FCE_LIST_IDX_TIMESTAMPS:    Result := fTimeStampCount;
+  FCE_LIST_IDX_ACCUMULATORS:  Result := fAccumulatorCount;
 else
   Result := inherited GetCount(List);
 end;
@@ -503,10 +593,31 @@ end;
 procedure TFrameClockEx.SetCount(List,Value: Integer);
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS:;  // do nothing
+  FCE_LIST_IDX_TIMESTAMPS:;   // do nothing
+  FCE_LIST_IDX_ACCUMULATORS:; // do nothing
 else
   inherited SetCount(List,Value);
 end;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.Initialize;
+begin
+inherited;
+SetLength(fTimeStamps,0);
+fTimeStampCount := 0;
+SetLength(fAccumulators,0);
+fAccumulatorCount := 0;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.Finalize;
+begin
+TimeStampClear;
+AccumulatorClear;
+inherited;
 end;
 
 {-------------------------------------------------------------------------------
@@ -516,7 +627,7 @@ end;
 constructor TFrameClockEx.Create;
 begin
 inherited Create;
-ListCount := 1;
+ListCount := ListCount + 2;
 end;
 
 //------------------------------------------------------------------------------
@@ -524,7 +635,8 @@ end;
 Function TFrameClockEx.LowIndex(List: Integer): Integer;
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Low(fTimeStamps);
+  FCE_LIST_IDX_TIMESTAMPS:    Result := Low(fTimeStamps);
+  FCE_LIST_IDX_ACCUMULATORS:  Result := Low(fAccumulators);
 else
   Result := inherited LowIndex(List);
 end;
@@ -535,7 +647,8 @@ end;
 Function TFrameClockEx.HighIndex(List: Integer): Integer;
 begin
 case List of
-  FC_LIST_IDX_TIMESTAMPS: Result := Pred(fTimeStampCount);
+  FCE_LIST_IDX_TIMESTAMPS:    Result := Pred(fTimeStampCount);
+  FCE_LIST_IDX_ACCUMULATORS:  Result := Pred(fAccumulatorCount);
 else
   Result := inherited HighIndex(List);
 end;
@@ -545,21 +658,21 @@ end;
 
 Function TFrameClockEx.TimeStampLowIndex: Integer;
 begin
-Result := LowIndex(FC_LIST_IDX_TIMESTAMPS);
+Result := LowIndex(FCE_LIST_IDX_TIMESTAMPS);
 end;
 
 //------------------------------------------------------------------------------
 
 Function TFrameClockEx.TimeStampHighIndex: Integer;
 begin
-Result := HighIndex(FC_LIST_IDX_TIMESTAMPS);
+Result := HighIndex(FCE_LIST_IDX_TIMESTAMPS);
 end;
 
 //------------------------------------------------------------------------------
 
 Function TFrameClockEx.TimeStampCheckIndex(Index: Integer): Boolean;
 begin
-Result := CheckIndex(FC_LIST_IDX_TIMESTAMPS,Index);
+Result := CheckIndex(FCE_LIST_IDX_TIMESTAMPS,Index);
 end;
 
 //------------------------------------------------------------------------------
@@ -600,7 +713,7 @@ var
 begin
 Result := -1;
 For i := TimeStampLowIndex to TimeStampHighIndex do
-  If AnsiSameStr(fTimeStamps[i].Name,Name) and (fTimeStamps[i].Value = Value) then
+  If (fTimeStamps[i].Value = Value) and AnsiSameStr(fTimeStamps[i].Name,Name) then
     begin
       Result := i;
       Break{For i};
@@ -611,7 +724,7 @@ end;
 
 Function TFrameClockEx.TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer;
 begin
-Grow(FC_LIST_IDX_TIMESTAMPS);
+Grow(FCE_LIST_IDX_TIMESTAMPS);
 Result := fTimeStampCount;
 fTimeStamps[Result].Name := Name;
 UniqueString(fTimeStamps[Result].Name);
@@ -635,7 +748,7 @@ var
 begin
 If TimeStampCheckIndex(Index) then
   begin
-    Grow(FC_LIST_IDX_TIMESTAMPS);
+    Grow(FCE_LIST_IDX_TIMESTAMPS);
     For i := TimeStampHighIndex downto Index do
       fTimeStamps[i + 1] := fTimeStamps[i];
     fTimeStamps[Index].Name := Name;
@@ -658,7 +771,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.TimeStampRemove(Value: Int64): Integer;
+Function TFrameClockEx.TimeStampRemove(Value: TFCTicks): Integer;
 begin
 Result := TimeStampIndexOf(Value);
 If TimeStampCheckIndex(Result) then
@@ -667,7 +780,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.TimeStampRemove(const Name: String; Value: Int64): Integer;
+Function TFrameClockEx.TimeStampRemove(const Name: String; Value: TFCTicks): Integer;
 begin
 Result := TimeStampIndexOf(Name,Value);
 If TimeStampCheckIndex(Result) then
@@ -685,7 +798,7 @@ If TimeStampCheckIndex(Index) then
     For i := Index to Pred(TimeStampHighIndex) do
       fTimeStamps[i] := fTimeStamps[i + 1];
     Dec(fTimeStampCount);
-    Shrink(FC_LIST_IDX_TIMESTAMPS);
+    Shrink(FCE_LIST_IDX_TIMESTAMPS);
   end
 else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.TimeStampDelete: Index (%d) out of bounds.',[Index]);
 end;
@@ -727,19 +840,260 @@ else
 }
 end;
 
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorLowIndex: Integer;
+begin
+Result := LowIndex(FCE_LIST_IDX_ACCUMULATORS);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorHighIndex: Integer;
+begin
+Result := HighIndex(FCE_LIST_IDX_ACCUMULATORS);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorCheckIndex(Index: Integer): Boolean;
+begin
+Result := CheckIndex(FCE_LIST_IDX_ACCUMULATORS,Index);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorIndexOf(const Name: String): Integer;
+var
+  i:  Integer;
+begin
+Result := -1;
+For i := AccumulatorLowIndex to AccumulatorHighIndex do
+  If AnsiSameStr(fAccumulators[i].Name,Name) then
+    begin
+      Result := i;
+      Break{For i};
+    end;
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorIndexOf(Value: TFCTicks): Integer;
+var
+  i:  Integer;
+begin
+Result := -1;
+For i := AccumulatorLowIndex to AccumulatorHighIndex do
+  If fAccumulators[i].Value = Value then
+    begin
+      Result := i;
+      Break{For i};
+    end;
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorIndexOf(const Name: String; Value: TFCTicks): Integer;
+var
+  i:  Integer;
+begin
+Result := -1;
+For i := AccumulatorLowIndex to AccumulatorHighIndex do
+  If (fAccumulators[i].Value = Value) and AnsiSameStr(fAccumulators[i].Name,Name) then
+    begin
+      Result := i;
+      Break{For i};
+    end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorAdd(const Name: String; InitialValue: TFCTicks = 0; UserData: PtrInt = 0): Integer;
+begin
+Grow(FCE_LIST_IDX_ACCUMULATORS);
+Result := fAccumulatorCount;
+fAccumulators[Result].Name := Name;
+UniqueString(fAccumulators[Result].Name);
+fAccumulators[Result].Value := InitialValue;
+fAccumulators[Result].UserData := UserData;
+Inc(fAccumulatorCount);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.AccumulatorInsert(Index: Integer; const Name: String; InitialValue: TFCTicks = 0; UserData: PtrInt = 0);
+var
+  i:  Integer;
+begin
+If AccumulatorCheckIndex(Index) then
+  begin
+    Grow(FCE_LIST_IDX_ACCUMULATORS);
+    For i := AccumulatorHighIndex downto Index do
+      fAccumulators[i + 1] := fAccumulators[i];
+    fAccumulators[Index].Name := Name;
+    UniqueString(fAccumulators[Index].Name);
+    fAccumulators[Index].Value := InitialValue;
+    fAccumulators[Index].UserData := UserData;
+    Inc(fAccumulatorCount);
+  end
+else AccumulatorAdd(Name,InitialValue,UserData);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorRemove(const Name: String): Integer;
+begin
+Result := AccumulatorIndexOf(Name);
+If AccumulatorCheckIndex(Result) then
+  AccumulatorDelete(Result);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorRemove(Value: TFCTicks): Integer;
+begin
+Result := AccumulatorIndexOf(Value);
+If AccumulatorCheckIndex(Result) then
+  AccumulatorDelete(Result);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorRemove(const Name: String; Value: TFCTicks): Integer;
+begin
+Result := AccumulatorIndexOf(Name,Value);
+If AccumulatorCheckIndex(Result) then
+  AccumulatorDelete(Result);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.AccumulatorDelete(Index: Integer);
+var
+  i:  Integer;
+begin
+If AccumulatorCheckIndex(Index) then
+  begin
+    For i := Index to Pred(AccumulatorHighIndex) do
+      fAccumulators[i] := fAccumulators[i + 1];
+    Dec(fAccumulatorCount);
+    Shrink(FCE_LIST_IDX_ACCUMULATORS);
+  end
+else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorDelete: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.AccumulatorClear;
+begin
+SetLength(fAccumulators,0);
+fAccumulatorCount := 0;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.AccumulatorReset(Index: Integer);
+begin
+If AccumulatorCheckIndex(Index) then
+  fAccumulators[Index].Value := 0
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorReset: Index (%d) out of bounds.',[Index]);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCFrameTime;
+begin
+If AccumulatorCheckIndex(Index) then
+  begin
+    fAccumulators[Index].Value := fAccumulators[Index].Value + Delta;
+    Result.Ticks := fAccumulators[Index].Value;
+    FrameTimeFromTicks(Result);
+  end
+else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorAccumulate: Index (%d) out of bounds.',[Index]);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorAccumulate(Index: Integer): TFCFrameTime;
+begin
+Result := AccumulatorAccumulate(Index,fFrameTime.Ticks);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCFrameTime;
+var
+  Index:  Integer;
+begin
+Index := AccumulatorIndexOf(Name);
+If AccumulatorCheckIndex(Index) then
+  Result := AccumulatorAccumulate(Index,Delta)
+else
+  FillChar(Result,SizeOf(TFCFrameTime),0);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorAccumulate(const Name: String): TFCFrameTime;
+begin
+Result := AccumulatorAccumulate(Name,fFrameTime.Ticks);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClockEx.AccumulatorAccumulateAll(Delta: TFCTicks);
+var
+  i:  Integer;
+begin
+For i := AccumulatorLowIndex to AccumulatorHighIndex do
+  fAccumulators[i].Value := fAccumulators[i].Value + Delta; 
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+procedure TFrameClockEx.AccumulatorAccumulateAll;
+begin
+AccumulatorAccumulateAll(fFrameTime.Ticks);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClockEx.AccumulatorTime(Index: Integer): TFCFrameTime;
+begin
+If AccumulatorCheckIndex(Index) then
+  begin
+    Result.Ticks := fAccumulators[Index].Value;
+    FrameTimeFromTicks(Result);
+  end
+else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorTime: Index (%d) out of bounds.',[Index]);
+end;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Function TFrameClockEx.AccumulatorTime(const Name: String): TFCFrameTime;
+var
+  Index:  Integer;
+begin
+Index := AccumulatorIndexOf(Name);
+If AccumulatorCheckIndex(Index) then
+  Result := AccumulatorTime(Index)
+else
+  FillChar(Result,SizeOf(TFCFrameTime),0);
+end;
 
 {===============================================================================
     Standalone functions - implementation
 ===============================================================================}
 
-procedure ClockMeasuringStart(out Context: TClockMeasuringContext);
+procedure ClockMeasureStart(out Context: TClockMeasureContext);
 begin
-Context := TClockMeasuringContext(TFrameClock.Create);
+Context := TClockMeasureContext(TFrameClock.Create);
 end;
 
 //------------------------------------------------------------------------------
 
-Function ClockMeasuringTick(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+Function ClockMeasureTick(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
 begin
 try
   TFrameClock(Context).TickFrame;
@@ -758,11 +1112,15 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function ClockMeasuringEnd(var Context: TClockMeasuringContext; ReturnUnit: TClockMeasuringUnit = mruMilli): Int64;
+Function ClockMeasureEnd(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
 begin
-Result := ClockMeasuringTick(Context,ReturnUnit);
-TFrameClock(Context).Free;
-Context := nil;
+try
+  Result := ClockMeasureTick(Context,ReturnUnit);
+  TFrameClock(Context).Free;
+  Context := nil;
+except
+  Result := -1;
+end;
 end;
 
 end.
