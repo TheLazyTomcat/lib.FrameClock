@@ -1,3 +1,119 @@
+{-------------------------------------------------------------------------------
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+-------------------------------------------------------------------------------}
+{===============================================================================
+
+  Frame Clock
+
+    Frame clock is intended to be used primarily as a mean of measuring distance
+    between two points in time with high resolution. But please note that,
+    given the implementation, the high resolution does not automatically imply
+    high precission, especially on long time intervals.
+    It is meant to be used to measure only very short intervals (at most
+    minutes). But it can, of course, exists for indefinite time, while only
+    measuring the last frame.
+
+    Within this library, the measured point is called just that, a point.
+    Space between two points is called a frame (hence frame clock).
+    Length of a frame, or time between two points, is called a distance.    
+
+    The measurement is done by obtaining values from monotonic high-resolution
+    or performace counters and then calculating difference between them.
+    The frame clock stores three such values called creation point, previous
+    point and current point. It also stores distance (elapsed time between)
+    previous and current point as a current frame.
+    Creation point is stored at the object creation. Previous and current
+    points are both initialized to the same value as creation point.
+    Each time method Tick is called, value from current point is moved to
+    previous point and current point is filled by an actual value from
+    preformance counter. The current frame distance is also calculated at that
+    point.
+
+                                   a frame
+                                   |
+        creation point          |-----|                 previous point
+        |                       |     |                 |
+        P-----P-----P-----P-----P-----P-----P-----P-----P-----P...
+                                 <--->                     |  |
+        time >>>                   |                       |  current point
+                                   a distance              |
+                                                           current frame
+
+    The distance is measured in ticks. Length of these ticks is implementation
+    and system dependent, so do not assume anything about them. It is just a
+    number that has meaning only within the object that produced it.
+    Do not pass these values between different instances of the frame clock!
+
+    To obtain the distance in usual units, use properties or methods designed
+    for that purpose (eg. CurrentFrame, TimeStampDistance, ...) - they,
+    in most cases, return value of type TFCTime which contains usable units.
+
+    Frame clock is using performace counter or its alternative that is available
+    on the current system for time measurement. If none of such clock or counter
+    is available, it defaults to normal time functions - these usually do not
+    provide resolution better than few milliseconds.
+    Whether the frame clock is running with high resolution can be discerned by
+    examining HighResolution property after instantiation.
+    If you force high resolution while creating an instance of frame clock, and
+    high-res timer is not available on the system, the constructor will raise
+    an EFCHighResolutionFail exception. Forcing low resolution cannot fail, it
+    just prevents the clock from even attempting to obtain high-res counter.
+
+    Recommended use of the frame clock should look like this:
+
+        Clock := TFrameClock.Create;
+        try
+          Clock.Tick;
+          // measured interval #1
+          Clock.Tick;
+          // CurrentFrame property now contains length of measured interval #1
+          <some_code>
+          Clock.Tick;
+          // measured interval #2
+          Clock.Tick;
+          // CurrentFrame property now contains length of measured interval #2
+          // measured interval #3
+          Clock.Tick;
+          // CurrentFrame property now contains length of measured interval #3
+          ...
+        finally
+          Clock.Free;
+        end;
+
+    WARNING - Do continuous measurements on one instance of the frame clock
+              only. Never use points from previous or paralel class instances,
+              it is not guaranteed to work reliably. Measuring across system
+              reboots will straight-up fail to produce anything sensible.
+
+  Version 1.0 (2020-__-__)
+
+  Last change 2020-__-__
+
+  ©2020 František Milt
+
+  Contacts:
+    František Milt: frantisek.milt@gmail.com
+
+  Support:
+    If you find this code useful, please consider supporting its author(s) by
+    making a small donation using the following link(s):
+
+      https://www.paypal.me/FMilt
+
+  Changelog:
+    For detailed changelog and history please refer to this git repository:
+
+      github.com/TheLazyTomcat/Lib.FrameClock
+
+  Dependencies:
+    AuxTypes           - github.com/TheLazyTomcat/Lib.AuxTypes
+    AuxClasses         - github.com/TheLazyTomcat/Lib.AuxClasses
+
+===============================================================================}
 unit FrameClock;
 
 {$IF Defined(WINDOWS) or Defined(MSWINDOWS)}
@@ -33,31 +149,10 @@ type
                                    TFrameClock
 --------------------------------------------------------------------------------
 ===============================================================================}
-{
-  TFrameClock class is intended to be used as a mean of measuring time between
-  two points in time with high resolution. Note that high resolution does not
-  necessarily mean high precission, especially on long time intervals.
-
-  If high resolution clock is not awailable on the system, or it fails for
-  whatever reason, it defaults to normal system timer (of which resolution is,
-  in most cases, worse than one milliseconds). If the clock is running in high
-  resolution mode or not can be checked in HighResolution property.
-  Also, if you select to force high-res at creation and the HR timer cannot be
-  used, the constructor raises an EFCHighResTmrFail exception.
-
-  Space between the two measured points is called frame (hence frame clock).
-
-  The distance is measured in ticks. Length of these ticks is implementation and
-  system dependent, do not assume anything about them, it is just a number that
-  has meaning only within the object that produced them. So do not pass these
-  values between different instances of the frame clock.
-}
-
-
 type
   TFCTicks = Int64;
 
-  TFCFrameTime = record
+  TFCTime = record
     Ticks:  TFCTicks;
     Sec:    Double;   // seconds
     MiS:    Double;   // milliseconds
@@ -67,6 +162,8 @@ type
     iUiS:   Int64;    // integral microseconds
   end;
 
+  TFCForcedResolution = (frForceHigh,frForceLow,frDontForce);
+
 {===============================================================================
     TFrameClock - class declaration
 ===============================================================================}
@@ -74,45 +171,46 @@ type
   TFrameClock = class(TCustomMultiListObject)
   protected
     fHighResolution:  Boolean;
-    fFrequency:       Int64;      // [Hz]
-    fResolution:      Int64;      // [ns]
-    fFrameCounter:    Int64;      // number of measured frames
-    fCreationTicks:   TFCTicks;
-    fPrevFrameTicks:  TFCTicks;
-    fCurrFrameTicks:  TFCTicks;
-    fFrameTime:       TFCFrameTime;
-    //- getters/setters ---
-    Function GetCreationTime: TFCFrameTime; virtual;
-    Function GetActualTime: TFCFrameTime; virtual;
+    fFrequency:       Int64;    // [Hz]
+    fResolution:      Int64;    // [ns]
+    fFrameCounter:    UInt64;   // number of measured frames
+    fCreationPoint:   TFCTicks; // time point when an instance was created
+    fPreviousPoint:   TFCTicks; // previous time point (second lass call to TickFrame)
+    fCurrentPoint:    TFCTicks; // current time point (lass call to TickFrame)
+    fCurrentFrame:    TFCTime;  // distance between previous and current points
     //- lists methods ---
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
     Function GetCount(List: Integer): Integer; override;
     procedure SetCount(List,Value: Integer); override;
     //- other protected methods ---
-    Function GetCurrentTicks: TFCTicks; virtual;
-    Function GetTicksDiff(A,B: TFCTicks): TFCTicks; virtual;
-    procedure FrameTimeFromTicks(var FrameTime: TFCFrameTime); virtual;
-    procedure InitializeTime; virtual;
-    procedure Initialize; virtual;
+    procedure InitializeTime(LowResOnly: Boolean); virtual;
+    procedure Initialize(ForcedResolution: TFCForcedResolution); virtual;
     procedure Finalize; virtual;
   public
-    constructor Create(ForceHighResolution: Boolean = False);
+    constructor Create(ForcedResolution: TFCForcedResolution = frDontForce);
     destructor Destroy; override;
-    Function TickFrame: TFCFrameTime; virtual;
-    Function TicksTime(Ticks: TFCTicks): TFCFrameTime; virtual; // time between given ticks and current frame
     Function LowIndex(List: Integer): Integer; override;
     Function HighIndex(List: Integer): Integer; override;
+    Function Tick: TFCTime; virtual;                            // returns frame distance
+    Function PointDistance(Point: TFCTicks): TFCTime; virtual;  // time between given point and current point
+    Function CreationDistance: TFCTime; virtual;                // time from object creation to current point
+    Function PreviousDistance: TFCTime; virtual;                // time from previous point to immediate time
+    Function CurrentDistance: TFCTime; virtual;                 // time from current point to immediate time
+    //--- utility functions ---
+    Function GetActualPoint: TFCTicks; virtual;
+    Function GetPointsDifference(A,B: TFCTicks): TFCTicks; virtual;
+    Function GetPointsDistance(A,B: TFCTicks): TFCTime; virtual;
+    procedure FillFromTicks(var FrameTime: TFCTime); virtual;
+    //--- properties ---
     property HighResolution: Boolean read fHighResolution;
     property Frequency: Int64 read fFrequency;
     property Resolution: Int64 read fResolution;
-    property FrameCounter: Int64 read fFrameCounter;
-    property CreationTicks: TFCTicks read fCreationTicks;
-    property PrevFrameTicks: TFCTicks read fPrevFrameTicks;
-    property CurrFrameTicks: TFCTicks read fCurrFrameTicks;
-    property CreationTime: TFCFrameTime read GetCreationTime;   // time from object creation to current frame
-    property FrameTime: TFCFrameTime read fFrameTime;           // time from previous frame to current frame
-    property ActualTime: TFCFrameTime read GetActualTime;       // time from current frame to actual time (moment the property is accessed)
+    property FrameCounter: UInt64 read fFrameCounter;
+    property CreationPoint: TFCTicks read fCreationPoint;
+    property PreviousPoint: TFCTicks read fPreviousPoint;
+    property CurrentPoint: TFCTicks read fCurrentPoint;
+    property CurrentFrame: TFCTime read fCurrentFrame;          // time from previous point to current point
   end;
 
 {===============================================================================
@@ -120,7 +218,8 @@ type
                                   TFrameClockEx
 --------------------------------------------------------------------------------
 ===============================================================================}
-
+TFrameClockEx = TFrameClock;
+(*
 // types and constants for lists...
 type
   TFCTimeStamp = record
@@ -186,8 +285,8 @@ type
     Function TimeStampRemove(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     procedure TimeStampDelete(Index: Integer); virtual;
     procedure TimeStampClear; virtual;
-    Function TimeStampTime(Index: Integer): TFCFrameTime; overload; virtual;    // time between selected timestamp and current frame
-    Function TimeStampTime(const Name: String): TFCFrameTime; overload; virtual;
+    Function TimeStampTime(Index: Integer): TFCTime; overload; virtual;    // time between selected timestamp and current frame
+    Function TimeStampTime(const Name: String): TFCTime; overload; virtual;
     //- accumulators list ---
     Function AccumulatorLowIndex: Integer; virtual;
     Function AccumulatorHighIndex: Integer; virtual;
@@ -203,14 +302,14 @@ type
     procedure AccumulatorDelete(Index: Integer); virtual;
     procedure AccumulatorClear; virtual;
     procedure AccumulatorReset(Index: Integer); virtual;
-    Function AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCFrameTime; overload; virtual;
-    Function AccumulatorAccumulate(Index: Integer): TFCFrameTime; overload; virtual;
-    Function AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCFrameTime; overload; virtual;
-    Function AccumulatorAccumulate(const Name: String): TFCFrameTime; overload; virtual;
+    Function AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCTime; overload; virtual;
+    Function AccumulatorAccumulate(Index: Integer): TFCTime; overload; virtual;
+    Function AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCTime; overload; virtual;
+    Function AccumulatorAccumulate(const Name: String): TFCTime; overload; virtual;
     procedure AccumulatorAccumulateAll(Delta: TFCTicks); overload; virtual;
     procedure AccumulatorAccumulateAll; overload; virtual;
-    Function AccumulatorTime(Index: Integer): TFCFrameTime; overload; virtual;
-    Function AccumulatorTime(const Name: String): TFCFrameTime; overload; virtual;
+    Function AccumulatorTime(Index: Integer): TFCTime; overload; virtual;
+    Function AccumulatorTime(const Name: String): TFCTime; overload; virtual;
     //- timestamp properties ---
     property TimeStampCount: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCount write SetCount;
     property TimeStampCapacity: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCapacity write SetCapacity;
@@ -222,19 +321,24 @@ type
     property Accumulators[Index: Integer]: TFCAccumulator read GetAccumulator write SetAccumulator;
     property AccumulatorPtrs[Index: Integer]: PFCAccumulator read GetAccumulatorPtr;
   end;
-
+*)
 {===============================================================================
     Standalone functions - declaration
 ===============================================================================}
 
 type
-  TClockMeasureContext = type Pointer;
+  TClockContext = type Pointer;
 
-  TClockMeasureUnit = (mruTick,mruSecond,mruMilli,mruMicro);
+  TClockUnit = (cuTick,cuSecond,cuMilli,cuMicro);
 
-procedure ClockMeasureStart(out Context: TClockMeasureContext);
-Function ClockMeasureTick(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
-Function ClockMeasureEnd(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
+procedure ClockStart(out Context: TClockContext);
+Function ClockTick(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
+{
+  Do NOT call ClockTick before ClockEnd if you want to use its return value to
+  measure interval just before the call to ClockEnd, it calls ClockTick
+  implicitly.
+}
+Function ClockEnd(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
 
 implementation
 
@@ -266,22 +370,6 @@ const
 {-------------------------------------------------------------------------------
     TFrameClock - protected methods
 -------------------------------------------------------------------------------}
-
-Function TFrameClock.GetCreationTime: TFCFrameTime;
-begin
-Result.Ticks := GetTicksDiff(fCreationTicks,fCurrFrameTicks);
-FrameTimeFromTicks(Result);
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.GetActualTime: TFCFrameTime;
-begin
-Result.Ticks := GetTicksDiff(fCurrFrameTicks,GetCurrentTicks);
-FrameTimeFromTicks(Result);
-end;
-
-//------------------------------------------------------------------------------
 
 Function TFrameClock.GetCapacity(List: Integer): Integer;
 begin
@@ -317,7 +405,132 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.GetCurrentTicks: TFCTicks;
+procedure TFrameClock.InitializeTime(LowResOnly: Boolean);
+{$IFNDEF Windows}
+var
+  Time: TTimeSpec;
+{$ENDIF}
+begin
+{$IFDEF Windows}
+If not LowResOnly and QueryPerformanceFrequency(fFrequency) then
+  begin
+    fHighResolution := True;
+    fFrequency := fFrequency and $7FFFFFFFFFFFFFFF; // mask out sign bit
+    fResolution := Trunc((1 / fFrequency) * FC_NANOS_PER_SEC);
+  end
+{$ELSE}
+If not LowResOnly and (clock_getres(CLOCK_MONOTONIC_RAW,@Time) = 0) then
+  begin
+    fHighResolution := True;
+    fFrequency := FC_NANOS_PER_SEC; // frequency is hardcoded for nanoseconds
+    fResolution := (Int64(Time.tv_sec) * FC_NANOS_PER_SEC) + Time.tv_nsec;
+  end
+{$ENDIF}
+else
+  begin
+    fHighResolution := False;
+    fFrequency := FC_MILLIS_PER_SEC;
+    fResolution := FC_NANOS_PER_MILLI;
+  end;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClock.Initialize(ForcedResolution: TFCForcedResolution);
+begin
+InitializeTime(ForcedResolution = frForceLow);
+If (ForcedResolution = frForceHigh) and not fHighResolution then
+ raise EFCHighResolutionFail.Create('TFrameClock.Create: Failed to obtain high resolution timer.');
+fFrameCounter := 0;
+fCreationPoint := GetActualPoint;
+fPreviousPoint := fCreationPoint;
+fCurrentPoint := fCreationPoint;
+FillChar(fCurrentFrame,SizeOf(TFCTime),0);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClock.Finalize;
+begin
+// nothing to do here
+end;
+
+{-------------------------------------------------------------------------------
+    TFrameClock - public methods
+-------------------------------------------------------------------------------}
+
+constructor TFrameClock.Create(ForcedResolution: TFCForcedResolution = frDontForce);
+begin
+inherited Create(0);
+Initialize(ForcedResolution);
+end;
+
+//------------------------------------------------------------------------------
+
+destructor TFrameClock.Destroy;
+begin
+Finalize;
+inherited;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.LowIndex(List: Integer): Integer;
+begin
+{$IFDEF FPC}Result := 0;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.LowIndex: Invalid list (%d).',[List]);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.HighIndex(List: Integer): Integer;
+begin
+{$IFDEF FPC}Result := -1;{$ENDIF}
+raise EFCInvalidList.CreateFmt('TFrameClock.HighIndex: Invalid list (%d).',[List]);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.Tick: TFCTime;
+begin
+Inc(fFrameCounter);
+fPreviousPoint := fCurrentPoint;
+fCurrentPoint := GetActualPoint;
+fCurrentFrame := GetPointsDistance(fPreviousPoint,fCurrentPoint);
+Result := fCurrentFrame;
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.PointDistance(Point: TFCTicks): TFCTime;
+begin
+Result := GetPointsDistance(Point,fCurrentPoint);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.CreationDistance: TFCTime;
+begin
+Result := GetPointsDistance(fCreationPoint,fCurrentPoint);
+end;
+ 
+//------------------------------------------------------------------------------
+
+Function TFrameClock.PreviousDistance: TFCTime;
+begin
+Result := GetPointsDistance(fPreviousPoint,GetActualPoint);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.CurrentDistance: TFCTime;
+begin
+Result := GetPointsDistance(fCurrentPoint,GetActualPoint);
+end;
+
+//------------------------------------------------------------------------------
+
+Function TFrameClock.GetActualPoint: TFCTicks;
 {$IFNDEF Windows}
 var
   Time: TTimeSpec;
@@ -343,7 +556,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClock.GetTicksDiff(A,B: TFCTicks): TFCTicks;
+Function TFrameClock.GetPointsDifference(A,B: TFCTicks): TFCTicks;
 begin
 If A < B then
   Result := B - A
@@ -355,7 +568,15 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClock.FrameTimeFromTicks(var FrameTime: TFCFrameTime);
+Function TFrameClock.GetPointsDistance(A,B: TFCTicks): TFCTime;
+begin
+Result.Ticks := GetPointsDifference(A,B);
+FillFromTicks(Result);
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClock.FillFromTicks(var FrameTime: TFCTime); 
 var
   Temp: Extended;
 begin
@@ -366,112 +587,6 @@ FrameTime.UiS := Temp * FC_MICROS_PER_SEC;
 FrameTime.iSec := Trunc(Temp);
 FrameTime.iMiS := Trunc(Temp * FC_MILLIS_PER_SEC);
 FrameTime.iUiS := Trunc(Temp * FC_MICROS_PER_SEC);
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TFrameClock.InitializeTime;
-{$IFNDEF Windows}
-var
-  Time: TTimeSpec;
-{$ENDIF}
-begin
-{$IFDEF Windows}
-If QueryPerformanceFrequency(fFrequency) then
-  begin
-    fHighResolution := True;
-    fFrequency := fFrequency and $7FFFFFFFFFFFFFFF; // mask out sign bit
-    fResolution := Trunc((1 / fFrequency) * FC_NANOS_PER_SEC);
-  end
-{$ELSE}
-If clock_getres(CLOCK_MONOTONIC_RAW,@Time) = 0 then
-  begin
-    fHighResolution := True;
-    fFrequency := FC_NANOS_PER_SEC; // frequency is hardcoded for nanoseconds
-    fResolution := (Int64(Time.tv_sec) * FC_NANOS_PER_SEC) + Time.tv_nsec;
-  end
-{$ENDIF}
-else
-  begin
-    fHighResolution := False;
-    fFrequency := FC_MILLIS_PER_SEC;
-    fResolution := FC_NANOS_PER_MILLI;
-  end;
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TFrameClock.Initialize;
-begin
-InitializeTime;
-fFrameCounter := 0;
-fCreationTicks := GetCurrentTicks;
-fPrevFrameTicks := fCreationTicks;
-fCurrFrameTicks := fCreationTicks;
-FillChar(fFrameTime,SizeOf(TFCFrameTime),0);
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TFrameClock.Finalize;
-begin
-// nothing to do here
-end;
-
-{-------------------------------------------------------------------------------
-    TFrameClock - public methods
--------------------------------------------------------------------------------}
-
-constructor TFrameClock.Create(ForceHighResolution: Boolean = False);
-begin
-inherited Create(0);
-Initialize;
-If ForceHighResolution and not fHighResolution then
- raise EFCHighResolutionFail.Create('TFrameClock.Create: Failed to obtain high resolution timer.');
-end;
-
-//------------------------------------------------------------------------------
-
-destructor TFrameClock.Destroy;
-begin
-Finalize;
-inherited;
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.TickFrame: TFCFrameTime;
-begin
-Inc(fFrameCounter);
-fPrevFrameTicks := fCurrFrameTicks;
-fCurrFrameTicks := GetCurrentTicks;
-fFrameTime.Ticks := GetTicksDiff(fPrevFrameTicks,fCurrFrameTicks);
-FrameTimeFromTicks(fFrameTime);
-Result := fFrameTime;
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.TicksTime(Ticks: TFCTicks): TFCFrameTime;
-begin
-Result.Ticks := GetTicksDiff(Ticks,fCurrFrameTicks);
-FrameTimeFromTicks(Result);
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.LowIndex(List: Integer): Integer;
-begin
-{$IFDEF FPC}Result := 0;{$ENDIF}
-raise EFCInvalidList.CreateFmt('TFrameClock.LowIndex: Invalid list (%d).',[List]);
-end;
-
-//------------------------------------------------------------------------------
-
-Function TFrameClock.HighIndex(List: Integer): Integer;
-begin
-{$IFDEF FPC}Result := -1;{$ENDIF}
-raise EFCInvalidList.CreateFmt('TFrameClock.HighIndex: Invalid list (%d).',[List]);
 end;
 
 {===============================================================================
@@ -485,7 +600,7 @@ end;
 {-------------------------------------------------------------------------------
     TFrameClockEx - protected methods
 -------------------------------------------------------------------------------}
-
+(*
 Function TFrameClockEx.GetTimeStamp(Index: Integer): TFCTimeStamp;
 begin
 If TimeStampCheckIndex(Index) then
@@ -813,7 +928,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClockEx.TimeStampTime(Index: Integer): TFCFrameTime;
+Function TFrameClockEx.TimeStampTime(Index: Integer): TFCTime;
 begin
 If TimeStampCheckIndex(Index) then
   begin
@@ -825,7 +940,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.TimeStampTime(const Name: String): TFCFrameTime;
+Function TFrameClockEx.TimeStampTime(const Name: String): TFCTime;
 var
   Index:  Integer;
 begin
@@ -833,7 +948,7 @@ Index := TimeStampIndexOf(Name);
 If TimeStampCheckIndex(Index) then
   Result := TimeStampTime(Index)
 else
-  FillChar(Addr(Result)^,SizeOf(TFCFrameTime),0);
+  FillChar(Addr(Result)^,SizeOf(TFCTime),0);
 {
   Addr(Result)^ is there as a workaround for nonsensical warning in FPC about
   result being not set.
@@ -1002,7 +1117,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClockEx.AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCFrameTime;
+Function TFrameClockEx.AccumulatorAccumulate(Index: Integer; Delta: TFCTicks): TFCTime;
 begin
 If AccumulatorCheckIndex(Index) then
   begin
@@ -1015,14 +1130,14 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.AccumulatorAccumulate(Index: Integer): TFCFrameTime;
+Function TFrameClockEx.AccumulatorAccumulate(Index: Integer): TFCTime;
 begin
 Result := AccumulatorAccumulate(Index,fFrameTime.Ticks);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCFrameTime;
+Function TFrameClockEx.AccumulatorAccumulate(const Name: String; Delta: TFCTicks): TFCTime;
 var
   Index:  Integer;
 begin
@@ -1030,12 +1145,12 @@ Index := AccumulatorIndexOf(Name);
 If AccumulatorCheckIndex(Index) then
   Result := AccumulatorAccumulate(Index,Delta)
 else
-  FillChar(Result,SizeOf(TFCFrameTime),0);
+  FillChar(Result,SizeOf(TFCTime),0);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.AccumulatorAccumulate(const Name: String): TFCFrameTime;
+Function TFrameClockEx.AccumulatorAccumulate(const Name: String): TFCTime;
 begin
 Result := AccumulatorAccumulate(Name,fFrameTime.Ticks);
 end;
@@ -1059,7 +1174,7 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClockEx.AccumulatorTime(Index: Integer): TFCFrameTime;
+Function TFrameClockEx.AccumulatorTime(Index: Integer): TFCTime;
 begin
 If AccumulatorCheckIndex(Index) then
   begin
@@ -1071,7 +1186,7 @@ end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.AccumulatorTime(const Name: String): TFCFrameTime;
+Function TFrameClockEx.AccumulatorTime(const Name: String): TFCTime;
 var
   Index:  Integer;
 begin
@@ -1079,31 +1194,32 @@ Index := AccumulatorIndexOf(Name);
 If AccumulatorCheckIndex(Index) then
   Result := AccumulatorTime(Index)
 else
-  FillChar(Result,SizeOf(TFCFrameTime),0);
+  FillChar(Result,SizeOf(TFCTime),0);
 end;
-
+*)
 {===============================================================================
     Standalone functions - implementation
 ===============================================================================}
 
-procedure ClockMeasureStart(out Context: TClockMeasureContext);
+procedure ClockStart(out Context: TClockContext);
 begin
-Context := TClockMeasureContext(TFrameClock.Create);
+Context := TClockContext(TFrameClock.Create);
+TFrameClock(Context).Tick;
 end;
 
 //------------------------------------------------------------------------------
 
-Function ClockMeasureTick(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
+Function ClockTick(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
 begin
 try
-  TFrameClock(Context).TickFrame;
+  TFrameClock(Context).Tick;
   case ReturnUnit of
-    mruSecond:  Result := TFrameClock(Context).FrameTime.iSec;
-    mruMilli:   Result := TFrameClock(Context).FrameTime.iMiS;
-    mruMicro:   Result := TFrameClock(Context).FrameTime.iUiS;
+    cuSecond: Result := TFrameClock(Context).CurrentFrame.iSec;
+    cuMilli:  Result := TFrameClock(Context).CurrentFrame.iMiS;
+    cuMicro:  Result := TFrameClock(Context).CurrentFrame.iUiS;
   else
    {mruTick}
-    Result := TFrameClock(Context).FrameTime.Ticks;
+    Result := TFrameClock(Context).CurrentFrame.Ticks;
   end;
 except
   Result := -1;
@@ -1112,10 +1228,10 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function ClockMeasureEnd(var Context: TClockMeasureContext; ReturnUnit: TClockMeasureUnit = mruMilli): Int64;
+Function ClockEnd(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
 begin
 try
-  Result := ClockMeasureTick(Context,ReturnUnit);
+  Result := ClockTick(Context,ReturnUnit);
   TFrameClock(Context).Free;
   Context := nil;
 except
