@@ -110,8 +110,8 @@
       github.com/TheLazyTomcat/Lib.FrameClock
 
   Dependencies:
-    AuxTypes           - github.com/TheLazyTomcat/Lib.AuxTypes
-    AuxClasses         - github.com/TheLazyTomcat/Lib.AuxClasses
+    AuxTypes   - github.com/TheLazyTomcat/Lib.AuxTypes
+    AuxClasses - github.com/TheLazyTomcat/Lib.AuxClasses
 
 ===============================================================================}
 unit FrameClock;
