@@ -167,6 +167,38 @@ type
 {===============================================================================
     TFrameClock - class declaration
 ===============================================================================}
+{
+  A note on corrections...
+
+  Correction is a distance (in ticks, itself not corrected) between two
+  consecutive calls to method Tick. This distance more or less corresponds
+  to a time the method Tick requires to execute. It is there for instances
+  where it is desirable to remove overhead time from measured intervals.
+
+  When ApplyCorrection property is se to true, value stored in Correction
+  property is subtracted from ticks within method FillFromTicks before the
+  ticks are converted to normal units. If the correction is larger than the
+  ticks, the ticks are set to 0.
+
+  To obtain actual value for correction, call method MeasureCorrection. This
+  method reapeatedly measures distance between two calls to Tick and returns
+  an average of this time. You can change number of repeated measurements by
+  altering Repeats parameter - but note that setting it to large number may
+  cause the method to execute for a long time. Note that measuring the
+  correction itself does not change any clock properties.
+
+  If you want to activate correction and at the same time set it to measured
+  value, call method ApplyMeasuredCorrection.
+
+  By default, ApplyCorrection is set to false and Correction is set to 0.
+  You have to change those properties if you want to apply corrections to your
+  measurements.
+
+  Correction, when applied, affects all values of type TFCTime returned from
+  the clock, including timestamp distances and accumulators in TFrameClockEx.
+
+  Standalone functions hawe corrections disabled.  
+}
 type
   TFrameClock = class(TCustomMultiListObject)
   protected
@@ -178,6 +210,8 @@ type
     fPreviousPoint:   TFCTicks;
     fCurrentPoint:    TFCTicks;
     fCurrentFrame:    TFCTime;
+    fApplyCorrection: Boolean;    
+    fCorrection:      TFCTicks;
     //- lists methods ---
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
@@ -201,7 +235,9 @@ type
     Function GetActualPoint: TFCTicks; virtual;
     Function GetPointsDifference(A,B: TFCTicks): TFCTicks; virtual;
     Function GetPointsDistance(A,B: TFCTicks): TFCTime; virtual;
-    procedure FillFromTicks(var FrameTime: TFCTime); virtual;
+    Function MeasureCorrection(Repeats: Integer = 1000): TFCTicks; virtual;
+    Function ApplyMeasuredCorrection: TFCTicks; virtual;
+    procedure FillFromTicks(var Time: TFCTime); virtual;
     //--- properties ---
     property HighResolution: Boolean read fHighResolution;
     property Frequency: Int64 read fFrequency;                  // [Hz]
@@ -211,6 +247,8 @@ type
     property PreviousPoint: TFCTicks read fPreviousPoint;       // previous time point (second lass call to TickFrame)
     property CurrentPoint: TFCTicks read fCurrentPoint;         // current time point (lass call to TickFrame)
     property CurrentFrame: TFCTime read fCurrentFrame;          // distance between previous and current points
+    property ApplyCorrection: Boolean read fApplyCorrection write fApplyCorrection;
+    property Correction: TFCTicks read fCorrection write fCorrection;
   end;
 
 {===============================================================================
@@ -439,12 +477,14 @@ procedure TFrameClock.Initialize(ForcedResolution: TFCForcedResolution);
 begin
 InitializeTime(ForcedResolution = frForceLow);
 If (ForcedResolution = frForceHigh) and not fHighResolution then
- raise EFCHighResolutionFail.Create('TFrameClock.Create: Failed to obtain high resolution timer.');
+  raise EFCHighResolutionFail.Create('TFrameClock.Create: Failed to obtain high resolution timer.');
 fFrameCounter := 0;
 fCreationPoint := GetActualPoint;
 fPreviousPoint := fCreationPoint;
 fCurrentPoint := fCreationPoint;
 FillChar(fCurrentFrame,SizeOf(TFCTime),0);
+fApplyCorrection := False;
+fCorrection := 0;
 end;
 
 //------------------------------------------------------------------------------
@@ -572,20 +612,77 @@ begin
 Result.Ticks := GetPointsDifference(A,B);
 FillFromTicks(Result);
 end;
+ 
+//------------------------------------------------------------------------------
+
+Function TFrameClock.MeasureCorrection(Repeats: Integer = 1000): TFCTicks;
+var
+  SavedFrameCounter:    UInt64;
+  SavedPreviousPoint:   TFCTicks;
+  SavedCurrentPoint:    TFCTicks;
+  SavedCurrentFrame:    TFCTime;
+  SavedApplyCorrection: Boolean;
+  i:                    Integer;
+  Counter:              TFCTicks;
+begin
+If Repeats > 0 then
+  begin
+    // save fields that will change during testing
+    SavedFrameCounter := fFrameCounter;
+    SavedPreviousPoint := fPreviousPoint;
+    SavedCurrentPoint := fCurrentPoint;
+    SavedCurrentFrame := fCurrentFrame;
+    SavedApplyCorrection := fApplyCorrection;
+    try
+      fApplyCorrection := False;
+      Counter := 0;
+      For i := 1 to Repeats do
+        begin
+          Tick; Tick;
+          Counter := Counter + fCurrentFrame.Ticks;
+        end;
+      Result := Round(Counter / Repeats);
+    finally
+      // restore changed fields
+      fFrameCounter := SavedFrameCounter;
+      fPreviousPoint := SavedPreviousPoint;
+      fCurrentPoint := SavedCurrentPoint;
+      fCurrentFrame := SavedCurrentFrame;
+      fApplyCorrection := SavedApplyCorrection;
+    end;
+  end
+else Result := 0
+end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClock.FillFromTicks(var FrameTime: TFCTime); 
+Function TFrameClock.ApplyMeasuredCorrection: TFCTicks;
+begin
+fApplyCorrection := True;
+fCorrection := MeasureCorrection;
+Result := fCorrection;
+end;
+
+//------------------------------------------------------------------------------
+
+procedure TFrameClock.FillFromTicks(var Time: TFCTime);
 var
   Temp: Extended;
 begin
-Temp := FrameTime.Ticks / fFrequency;
-FrameTime.Sec := Temp;
-FrameTime.MiS := Temp * FC_MILLIS_PER_SEC;
-FrameTime.UiS := Temp * FC_MICROS_PER_SEC;
-FrameTime.iSec := Trunc(Temp);
-FrameTime.iMiS := Trunc(Temp * FC_MILLIS_PER_SEC);
-FrameTime.iUiS := Trunc(Temp * FC_MICROS_PER_SEC);
+If fApplyCorrection then
+  begin
+    If Time.Ticks >= fCorrection then
+      Time.Ticks := Time.Ticks - fCorrection
+    else
+      Time.Ticks := 0;
+  end;
+Temp := Time.Ticks / fFrequency;
+Time.Sec := Temp;
+Time.MiS := Temp * FC_MILLIS_PER_SEC;
+Time.UiS := Temp * FC_MICROS_PER_SEC;
+Time.iSec := Trunc(Temp);
+Time.iMiS := Trunc(Temp * FC_MILLIS_PER_SEC);
+Time.iUiS := Trunc(Temp * FC_MICROS_PER_SEC);
 end;
      
 
