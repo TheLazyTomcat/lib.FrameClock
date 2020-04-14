@@ -89,9 +89,9 @@
               it is not guaranteed to work reliably. Measuring across system
               reboots will straight-up fail to produce anything sensible.
 
-  Version 1.0 (2020-__-__)
+  Version 1.0 (2020-04-14)
 
-  Last change 2020-__-__
+  Last change 2020-04-14
 
   ©2020 František Milt
 
@@ -171,13 +171,13 @@ type
   TFrameClock = class(TCustomMultiListObject)
   protected
     fHighResolution:  Boolean;
-    fFrequency:       Int64;    // [Hz]
-    fResolution:      Int64;    // [ns]
-    fFrameCounter:    UInt64;   // number of measured frames
-    fCreationPoint:   TFCTicks; // time point when an instance was created
-    fPreviousPoint:   TFCTicks; // previous time point (second lass call to TickFrame)
-    fCurrentPoint:    TFCTicks; // current time point (lass call to TickFrame)
-    fCurrentFrame:    TFCTime;  // distance between previous and current points
+    fFrequency:       Int64;
+    fResolution:      Int64;
+    fFrameCounter:    UInt64;
+    fCreationPoint:   TFCTicks;
+    fPreviousPoint:   TFCTicks;
+    fCurrentPoint:    TFCTicks;
+    fCurrentFrame:    TFCTime;
     //- lists methods ---
     Function GetCapacity(List: Integer): Integer; override;
     procedure SetCapacity(List,Value: Integer); override;
@@ -204,13 +204,13 @@ type
     procedure FillFromTicks(var FrameTime: TFCTime); virtual;
     //--- properties ---
     property HighResolution: Boolean read fHighResolution;
-    property Frequency: Int64 read fFrequency;
-    property Resolution: Int64 read fResolution;
-    property FrameCounter: UInt64 read fFrameCounter;
-    property CreationPoint: TFCTicks read fCreationPoint;
-    property PreviousPoint: TFCTicks read fPreviousPoint;
-    property CurrentPoint: TFCTicks read fCurrentPoint;
-    property CurrentFrame: TFCTime read fCurrentFrame;          // time from previous point to current point
+    property Frequency: Int64 read fFrequency;                  // [Hz]
+    property Resolution: Int64 read fResolution;                // [ns] can be 0, which means resolution better than 1 ns
+    property FrameCounter: UInt64 read fFrameCounter;           // number of measured frames
+    property CreationPoint: TFCTicks read fCreationPoint;       // time point when an instance was created
+    property PreviousPoint: TFCTicks read fPreviousPoint;       // previous time point (second lass call to TickFrame)
+    property CurrentPoint: TFCTicks read fCurrentPoint;         // current time point (lass call to TickFrame)
+    property CurrentFrame: TFCTime read fCurrentFrame;          // distance between previous and current points
   end;
 
 {===============================================================================
@@ -218,8 +218,7 @@ type
                                   TFrameClockEx
 --------------------------------------------------------------------------------
 ===============================================================================}
-TFrameClockEx = TFrameClock;
-(*
+
 // types and constants for lists...
 type
   TFCTimeStamp = record
@@ -264,10 +263,10 @@ type
     Function GetCount(List: Integer): Integer; override;
     procedure SetCount(List,Value: Integer); override;
     //- other methods ---
-    procedure Initialize; override;
+    procedure Initialize(ForcedResolution: TFCForcedResolution); override;
     procedure Finalize; override;
   public
-    constructor Create;
+    constructor Create(ForcedResolution: TFCForcedResolution = frDontForce);
     Function LowIndex(List: Integer): Integer; override;
     Function HighIndex(List: Integer): Integer; override;
     //- timestamps list ---
@@ -278,15 +277,15 @@ type
     Function TimeStampIndexOf(Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampIndexOf(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampAdd(const Name: String; Value: TFCTicks; UserData: PtrInt = 0): Integer; virtual;
-    Function TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer; virtual; // adds current frame ticks as a new timestamp
+    Function TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer; virtual; // adds current point as a new timestamp
     procedure TimeStampInsert(Index: Integer; const Name: String; Value: TFCTicks; UserData: PtrInt = 0); virtual;
     Function TimeStampRemove(const Name: String): Integer; overload; virtual;
     Function TimeStampRemove(Value: TFCTicks): Integer; overload; virtual;
     Function TimeStampRemove(const Name: String; Value: TFCTicks): Integer; overload; virtual;
     procedure TimeStampDelete(Index: Integer); virtual;
     procedure TimeStampClear; virtual;
-    Function TimeStampTime(Index: Integer): TFCTime; overload; virtual;    // time between selected timestamp and current frame
-    Function TimeStampTime(const Name: String): TFCTime; overload; virtual;
+    Function TimeStampDistance(Index: Integer): TFCTime; overload; virtual;    // distance between selected timestamp and current point
+    Function TimeStampDistance(const Name: String): TFCTime; overload; virtual;
     //- accumulators list ---
     Function AccumulatorLowIndex: Integer; virtual;
     Function AccumulatorHighIndex: Integer; virtual;
@@ -308,8 +307,8 @@ type
     Function AccumulatorAccumulate(const Name: String): TFCTime; overload; virtual;
     procedure AccumulatorAccumulateAll(Delta: TFCTicks); overload; virtual;
     procedure AccumulatorAccumulateAll; overload; virtual;
-    Function AccumulatorTime(Index: Integer): TFCTime; overload; virtual;
-    Function AccumulatorTime(const Name: String): TFCTime; overload; virtual;
+    Function AccumulatorDistance(Index: Integer): TFCTime; overload; virtual; // how much distance has been accumulated
+    Function AccumulatorDistance(const Name: String): TFCTime; overload; virtual;
     //- timestamp properties ---
     property TimeStampCount: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCount write SetCount;
     property TimeStampCapacity: Integer index FCE_LIST_IDX_TIMESTAMPS read GetCapacity write SetCapacity;
@@ -321,7 +320,7 @@ type
     property Accumulators[Index: Integer]: TFCAccumulator read GetAccumulator write SetAccumulator;
     property AccumulatorPtrs[Index: Integer]: PFCAccumulator read GetAccumulatorPtr;
   end;
-*)
+
 {===============================================================================
     Standalone functions - declaration
 ===============================================================================}
@@ -588,6 +587,7 @@ FrameTime.iSec := Trunc(Temp);
 FrameTime.iMiS := Trunc(Temp * FC_MILLIS_PER_SEC);
 FrameTime.iUiS := Trunc(Temp * FC_MICROS_PER_SEC);
 end;
+     
 
 {===============================================================================
 --------------------------------------------------------------------------------
@@ -600,7 +600,7 @@ end;
 {-------------------------------------------------------------------------------
     TFrameClockEx - protected methods
 -------------------------------------------------------------------------------}
-(*
+
 Function TFrameClockEx.GetTimeStamp(Index: Integer): TFCTimeStamp;
 begin
 If TimeStampCheckIndex(Index) then
@@ -717,9 +717,9 @@ end;
 
 //------------------------------------------------------------------------------
 
-procedure TFrameClockEx.Initialize;
+procedure TFrameClockEx.Initialize(ForcedResolution: TFCForcedResolution);
 begin
-inherited;
+inherited Initialize(ForcedResolution);
 SetLength(fTimeStamps,0);
 fTimeStampCount := 0;
 SetLength(fAccumulators,0);
@@ -739,9 +739,9 @@ end;
     TFrameClockEx - public methods
 -------------------------------------------------------------------------------}
 
-constructor TFrameClockEx.Create;
+constructor TFrameClockEx.Create(ForcedResolution: TFCForcedResolution = frDontForce);
 begin
-inherited Create;
+inherited Create(ForcedResolution);
 ListCount := ListCount + 2;
 end;
 
@@ -852,7 +852,7 @@ end;
 
 Function TFrameClockEx.TimeStampAddCurrent(const Name: String; UserData: PtrInt = 0): Integer;
 begin
-Result := TimeStampAdd(Name,fCurrFrameTicks,UserData);
+Result := TimeStampAdd(Name,fCurrentPoint,UserData);
 end;
 
 //------------------------------------------------------------------------------
@@ -928,25 +928,23 @@ end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClockEx.TimeStampTime(Index: Integer): TFCTime;
+Function TFrameClockEx.TimeStampDistance(Index: Integer): TFCTime;
 begin
 If TimeStampCheckIndex(Index) then
-  begin
-    Result.Ticks := GetTicksDiff(fTimeStamps[Index].Value,fCurrFrameTicks);
-    FrameTimeFromTicks(Result);
-  end
-else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.TimeStampTime: Index (%d) out of bounds.',[Index]);
+  Result := GetPointsDistance(fTimeStamps[Index].Value,fCurrentPoint)
+else
+  raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.TimeStampTime: Index (%d) out of bounds.',[Index]);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.TimeStampTime(const Name: String): TFCTime;
+Function TFrameClockEx.TimeStampDistance(const Name: String): TFCTime;
 var
   Index:  Integer;
 begin
 Index := TimeStampIndexOf(Name);
 If TimeStampCheckIndex(Index) then
-  Result := TimeStampTime(Index)
+  Result := TimeStampDistance(Index)
 else
   FillChar(Addr(Result)^,SizeOf(TFCTime),0);
 {
@@ -1123,7 +1121,7 @@ If AccumulatorCheckIndex(Index) then
   begin
     fAccumulators[Index].Value := fAccumulators[Index].Value + Delta;
     Result.Ticks := fAccumulators[Index].Value;
-    FrameTimeFromTicks(Result);
+    FillFromTicks(Result);
   end
 else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorAccumulate: Index (%d) out of bounds.',[Index]);
 end;
@@ -1132,7 +1130,7 @@ end;
 
 Function TFrameClockEx.AccumulatorAccumulate(Index: Integer): TFCTime;
 begin
-Result := AccumulatorAccumulate(Index,fFrameTime.Ticks);
+Result := AccumulatorAccumulate(Index,fCurrentFrame.Ticks);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1145,14 +1143,14 @@ Index := AccumulatorIndexOf(Name);
 If AccumulatorCheckIndex(Index) then
   Result := AccumulatorAccumulate(Index,Delta)
 else
-  FillChar(Result,SizeOf(TFCTime),0);
+  FillChar(Addr(Result)^,SizeOf(TFCTime),0);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 Function TFrameClockEx.AccumulatorAccumulate(const Name: String): TFCTime;
 begin
-Result := AccumulatorAccumulate(Name,fFrameTime.Ticks);
+Result := AccumulatorAccumulate(Name,fCurrentFrame.Ticks);
 end;
 
 //------------------------------------------------------------------------------
@@ -1169,34 +1167,35 @@ end;
 
 procedure TFrameClockEx.AccumulatorAccumulateAll;
 begin
-AccumulatorAccumulateAll(fFrameTime.Ticks);
+AccumulatorAccumulateAll(fCurrentFrame.Ticks);
 end;
 
 //------------------------------------------------------------------------------
 
-Function TFrameClockEx.AccumulatorTime(Index: Integer): TFCTime;
+Function TFrameClockEx.AccumulatorDistance(Index: Integer): TFCTime;
 begin
 If AccumulatorCheckIndex(Index) then
   begin
     Result.Ticks := fAccumulators[Index].Value;
-    FrameTimeFromTicks(Result);
+    FillFromTicks(Result);
   end
 else raise EFCIndexOutOfBounds.CreateFmt('TFrameClockEx.AccumulatorTime: Index (%d) out of bounds.',[Index]);
 end;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Function TFrameClockEx.AccumulatorTime(const Name: String): TFCTime;
+Function TFrameClockEx.AccumulatorDistance(const Name: String): TFCTime;
 var
   Index:  Integer;
 begin
 Index := AccumulatorIndexOf(Name);
 If AccumulatorCheckIndex(Index) then
-  Result := AccumulatorTime(Index)
+  Result := AccumulatorDistance(Index)
 else
-  FillChar(Result,SizeOf(TFCTime),0);
+  FillChar(Addr(Result)^,SizeOf(TFCTime),0);
 end;
-*)
+
+
 {===============================================================================
     Standalone functions - implementation
 ===============================================================================}
