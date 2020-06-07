@@ -89,9 +89,9 @@
               it is not guaranteed to work reliably. Measuring across system
               reboots will straight-up fail to produce anything sensible.
 
-  Version 1.0 (2020-04-14)
+  Version 1.0.1 (2020-06-07)
 
-  Last change 2020-04-14
+  Last change 2020-06-07
 
   ©2020 František Milt
 
@@ -369,13 +369,17 @@ type
   TClockUnit = (cuTick,cuSecond,cuMilli,cuMicro);
 
 procedure ClockStart(out Context: TClockContext);
+
 Function ClockTick(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
+Function ClockTickF(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Double;
+
 {
   Do NOT call ClockTick before ClockEnd if you want to use its return value to
   measure interval just before the call to ClockEnd, it calls ClockTick
   implicitly.
 }
 Function ClockEnd(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
+Function ClockEndF(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Double;
 
 implementation
 
@@ -1324,10 +1328,42 @@ end;
 
 //------------------------------------------------------------------------------
 
+Function ClockTickF(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Double;
+begin
+try
+  TFrameClock(Context).Tick;
+  case ReturnUnit of
+    cuSecond: Result := TFrameClock(Context).CurrentFrame.Sec;
+    cuMilli:  Result := TFrameClock(Context).CurrentFrame.MiS;
+    cuMicro:  Result := TFrameClock(Context).CurrentFrame.UiS;
+  else
+   {mruTick}
+    Result := TFrameClock(Context).CurrentFrame.Ticks;
+  end;
+except
+  Result := -1;
+end;
+end;
+
+//------------------------------------------------------------------------------
+
 Function ClockEnd(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Int64;
 begin
 try
   Result := ClockTick(Context,ReturnUnit);
+  TFrameClock(Context).Free;
+  Context := nil;
+except
+  Result := -1;
+end;
+end;
+
+//------------------------------------------------------------------------------
+
+Function ClockEndF(var Context: TClockContext; ReturnUnit: TClockUnit = cuMilli): Double;
+begin
+try
+  Result := ClockTickF(Context,ReturnUnit);
   TFrameClock(Context).Free;
   Context := nil;
 except
