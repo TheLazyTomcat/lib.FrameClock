@@ -91,7 +91,7 @@
 
   Version 1.0.1 (2020-06-07)
 
-  Last change 2020-06-07
+  Last change 2020-08-02
 
   ©2020 František Milt
 
@@ -129,6 +129,7 @@ unit FrameClock;
   {$DEFINE FPC_DisableWarns}
   {$MACRO ON}
 {$ENDIF}
+{$H+}
 
 interface
 
