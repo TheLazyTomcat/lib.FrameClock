@@ -91,9 +91,9 @@
 
   Version 1.0.1 (2020-06-07)
 
-  Last change 2020-08-02
+  Last change 2022-09-24
 
-  ©2020 František Milt
+  ©2020-2022 František Milt
 
   Contacts:
     František Milt: frantisek.milt@gmail.com
@@ -125,7 +125,8 @@ unit FrameClock;
 {$IFEND}
 
 {$IFDEF FPC}
-  {$MODE Delphi}
+  {$MODE ObjFPC}
+  {$MODESWITCH DuplicateLocals+}
   {$DEFINE FPC_DisableWarns}
   {$MACRO ON}
 {$ENDIF}
